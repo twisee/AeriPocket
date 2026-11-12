@@ -24,7 +24,7 @@ object CsvReader {
         if (utf8Text != null && (isAsciiOnly(utf8Text) || utf8Text.contains("交易"))) {
             return utf8Text
         }
-        val gbkText = String(bytes, Charset.forName("GBK"))
+        val gbkText = String(bytes, Charset.forName("GB18030"))
         return if (utf8Text == null || gbkText.contains("交易")) gbkText else utf8Text
     }
 

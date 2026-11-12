@@ -57,8 +57,9 @@ object ChartMath {
             val d = Instant.ofEpochMilli(r.timestamp).atZone(zone).toLocalDate()
             if (period.contains(d)) {
                 val i = period.dayIndexOf(d) - 1
-                cents[i] += r.amountCents
-                counts[i]++
+                val net = if (r.refundMark == com.controleco.app.data.db.RefundMark.REFUNDED_EXPENSE) 0L else (r.amountCents - r.refundedCents).coerceAtLeast(0)
+                cents[i] += com.controleco.app.data.budget.BudgetShare.aaSplitCents(net, r.aaShares)
+                if (net > 0) counts[i]++
             }
         }
         return (1..days).map { pos ->
@@ -108,8 +109,9 @@ object ChartMath {
             val accountingMonth = YearMonth.from(MonthPeriod.of(d, startDay).start)
             val i = ChronoUnit.MONTHS.between(baseMonth, accountingMonth).toInt()
             if (i in 0..11) {
-                cents[i] += r.amountCents
-                counts[i]++
+                val net = if (r.refundMark == com.controleco.app.data.db.RefundMark.REFUNDED_EXPENSE) 0L else (r.amountCents - r.refundedCents).coerceAtLeast(0)
+                cents[i] += com.controleco.app.data.budget.BudgetShare.aaSplitCents(net, r.aaShares)
+                if (net > 0) counts[i]++
             }
         }
         return (1..12).map { m ->

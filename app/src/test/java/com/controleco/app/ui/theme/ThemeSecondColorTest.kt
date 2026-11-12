@@ -173,7 +173,9 @@ class ThemeSecondColorTest {
             assertTrue("${c.accent.label}: 深色纸面太亮（$l）", l < 0.06f)
         }
         // 深色模式也不再是一片深青
-        assertEquals("深色纸面不应相同", all.size, darks.map { it.paper }.toSet().size)
+        val tintedDarks = darks.filter { it.accent.neutralDark != Neutral.GRAPHITE }
+        assertEquals("有色主题仍各有自己的深色纸面", tintedDarks.size, tintedDarks.map { it.paper }.toSet().size)
+        assertEquals("晴黄和黑白灰共享石墨底色", ecoColors(true, EcoAccent.White).paper, ecoColors(true, EcoAccent.Sunshine).paper)
     }
 
     // ---------- 语义色没有被次要色挤掉 ----------

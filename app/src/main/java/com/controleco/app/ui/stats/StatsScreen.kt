@@ -101,7 +101,7 @@ import kotlin.math.roundToInt
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0) {
+fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (YearMonth, LocalDate?) -> Unit = { _, _ -> }) {
     val c = MaterialTheme.eco
     val month by vm.month.collectAsStateWithLifecycle()
     val mode by vm.periodMode.collectAsStateWithLifecycle()
@@ -136,53 +136,6 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0) {
     } else {
         month.year == currentAccountingMonth.year
     }
-
-    // 柱状图数据：月视角每日一根、年视角每会计月一根（两者都按会计月分桶）
-    val bars = remember(rowsReady, month, mode, monthStartDay) {
-        if (mode == PeriodMode.MONTH) {
-            ChartMath.monthBars(rowsReady, month, monthStartDay)
-        } else {
-            ChartMath.yearBars(rowsReady, month, monthStartDay)
-        }
-    }
-    // 柱状图入场进度**由页面持有**：`ExpenseBarChart` 是 LazyColumn 的一个 item，滑出屏幕就被销毁，
-    // 进度若 remember 在 item 内部，滑回来会从 0 重播（用户反馈的 bug：下滑再上滑动画重播）。
-    // 提到页面级后：上下滑动时无论柱状图可不可见都不重播；只有切页（本页离开组合、重新进入时重建）
-    // 或换周期（bars 变）才重播。读进度在 Canvas 的绘制阶段，每帧只重画、不重组。
-    val barGrow = remember { Animatable(0f) }
-    val animationsEnabled = LocalAnimationsEnabled.current
-    LaunchedEffect(bars, animationsEnabled) {
-        if (!animationsEnabled) {
-            // 关闭美化动效：柱子直接到位
-            barGrow.snapTo(1f)
-            return@LaunchedEffect
-        }
-        barGrow.snapTo(0f)
-        barGrow.animateTo(1f, tween(820, easing = FastOutSlowInEasing))
-    }
-
-    // 选中柱由页面持有：卡片头部的 readout 要跟着它走。
-    // 原型默认选中"今天"对应的柱；看历史周期时默认选中支出最高的一天。
-    val defaultBarIndex = remember(bars, isCurrentPeriod, mode, monthStartDay) {
-        if (bars.isEmpty()) {
-            0
-        } else if (isCurrentPeriod) {
-            val raw = if (mode == PeriodMode.MONTH) {
-                MonthPeriod.of(month, monthStartDay).dayIndexOf(today) - 1
-            } else {
-                // 年视角：默认选中"今天"所属的**会计月**。首日≠1 时今天的会计月可能落在 12 月桶
-                // （例如首日=5、今天=1 月 3 日），不能直接用 today.monthValue - 1。
-                ChronoUnit.MONTHS.between(
-                    YearMonth.of(month.year, 1),
-                    YearMonth.from(MonthPeriod.of(today, monthStartDay).start),
-                ).toInt()
-            }
-            raw.coerceIn(0, bars.lastIndex)
-        } else {
-            bars.indices.maxByOrNull { bars[it].cents } ?: 0
-        }
-    }
-    var selectedBar by remember(bars) { mutableIntStateOf(defaultBarIndex) }
 
     // 分类切片：实际支出（本期，已排除被标「已退款」的支出，AA 按 m ÷ n 折算）+ 分类预算（年视角按 12 个月合计）
     val slices = remember(byCategoryReady, categoryBudgets, categories, mode) {
@@ -232,7 +185,7 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0) {
     Column(Modifier.fillMaxSize()) {
         EcoTopBar(
             micro = "INSIGHTS / $monthEn",
-            title = "统计",
+            title = "概览",
             action = {
                 Text(
                     "${month.year} / ${month.monthValue.toString().padStart(2, '0')}",
@@ -292,14 +245,14 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0) {
                 )
             }
             item(key = "trend") {
-                TrendCard(
-                    mode = mode,
-                    bars = bars,
-                    expenseCents = expense,
-                    selected = selectedBar,
-                    onSelect = { selectedBar = it },
-                    grow = { barGrow.value },
-                )
+                if (mode == PeriodMode.MONTH) {
+                    SpendingCalendarCard(month, monthStartDay, rowsReady) { day ->
+                        onOpenLedger(MonthPeriod.monthOf(day, monthStartDay), day)
+                    }
+                } else {
+                    SpendingMonthGrid(month.year, monthStartDay, rowsReady) { onOpenLedger(it, null) }
+                }
+
             }
 
             // ---- 唯一一个圆环：留在分类列表上方，向上滚动时吸顶 ----
@@ -479,16 +432,14 @@ private fun StatsToolbar(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                periodLabel(month, mode),
+            com.controleco.app.ui.common.AnimatedPeriodLabel(
+                month = month, mode = mode,
                 style = EcoType.RowTitle.copy(
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = (-0.5).sp,
                 ),
                 color = c.ink,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 if (mode == PeriodMode.MONTH) "ACCOUNTING MONTH" else "ACCOUNTING YEAR",

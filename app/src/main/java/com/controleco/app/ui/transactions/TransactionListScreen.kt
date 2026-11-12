@@ -60,6 +60,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import com.controleco.app.ui.eco.LocalAnimationsEnabled
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -135,8 +137,11 @@ internal fun billRowText(
 ): BillRowText {
     val merchant = counterparty.trim()
     val whenText = if (datePrefix.isNullOrBlank()) time else "$datePrefix $time"
+    val platform = listOf("淘宝闪购", "淘宝", "天猫", "京东", "拼多多", "美团", "饿了么", "抖音", "唯品会")
+        .firstOrNull { merchant.contains(it) }
     return if (merchant.isNotEmpty()) {
-        BillRowText(title = merchant, subLine1 = "$whenText  $categoryName", note = note)
+        BillRowText(title = platform ?: merchant, subLine1 = "$whenText  $categoryName",
+            note = if (platform != null && merchant != platform) listOf(merchant, note).filter { it.isNotBlank() }.joinToString(" · ") else note)
     } else {
         BillRowText(title = categoryName, subLine1 = whenText, note = note)
     }
@@ -177,7 +182,7 @@ internal fun headerIndexForDay(
     index: Int,
 ): Int {
     var acc = 0
-    for (i in 0 until index) acc += 1 + (grouped[days[i]]?.size ?: 0)
+    for (i in 0 until index) acc += 1 + (grouped[days[i]]?.size ?: 0).coerceAtLeast(1)
     return acc
 }
 
@@ -192,14 +197,22 @@ fun TransactionListScreen(
     onEditTransaction: (Long) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
-    scrollToTopTick: Int = 0,
+    entryToken: Int = 0,
+    entryDay: LocalDate? = null,
 ) {
-    val rows by vm.periodRows.collectAsStateWithLifecycle()
-    val totals by vm.periodTotals.collectAsStateWithLifecycle()
     val month by vm.month.collectAsStateWithLifecycle()
     val mode by vm.periodMode.collectAsStateWithLifecycle()
     val currentAccountingMonth by vm.currentAccountingMonth.collectAsStateWithLifecycle()
     val monthStartDay by vm.monthStartDay.collectAsStateWithLifecycle()
+    var anchorText by rememberSaveable { mutableStateOf(month.toString()) }
+    var loadedMonths by rememberSaveable { mutableIntStateOf(1) }
+    var automaticMonthChange by remember { mutableStateOf<YearMonth?>(null) }
+    var manualMonthLoading by remember { mutableStateOf(false) }
+    val anchorMonth = YearMonth.parse(anchorText)
+    val windowFlow = remember(anchorMonth, loadedMonths, mode, monthStartDay) { vm.ledgerWindow(anchorMonth, loadedMonths, mode, monthStartDay) }
+    val window by windowFlow.collectAsStateWithLifecycle()
+    val earliest by vm.earliestLedgerTimestamp.collectAsStateWithLifecycle()
+
     val categories by vm.categories.collectAsStateWithLifecycle()
     val cardImageUri by vm.cardImageUri.collectAsStateWithLifecycle()
     val cardTransform by vm.cardTransform.collectAsStateWithLifecycle()
@@ -207,11 +220,19 @@ fun TransactionListScreen(
     val cardImageColor by vm.cardImageColor.collectAsStateWithLifecycle()
     val cardImageLuminance by vm.cardImageLuminance.collectAsStateWithLifecycle()
 
-    val rowsReady = rows ?: return
-    val totalsReady = totals ?: return
+    val rowsReady = window?.rows.orEmpty()
+    val headerRange = if (mode == PeriodMode.MONTH) MonthPeriod.of(month, monthStartDay).toMillisRange()
+        else MonthPeriod.year(month.year, monthStartDay).toMillisRange()
+    val headerRows = rowsReady.filter { it.timestamp >= headerRange.first && it.timestamp < headerRange.second }
+    val expense = headerRows.filter { it.type == TxType.EXPENSE }.sumOf { (it.amountCents - it.refundedCents).coerceAtLeast(0) }
+    val income = headerRows.filter { it.type == TxType.INCOME }.sumOf { it.amountCents }
+    val requestedStart = if (mode == PeriodMode.MONTH) MonthPeriod.of(anchorMonth.minusMonths((loadedMonths - 1).toLong()), monthStartDay).toMillisRange().first
+        else MonthPeriod.year(anchorMonth.year, monthStartDay).toMillisRange().first
+    val requestedEnd = if (mode == PeriodMode.MONTH) MonthPeriod.of(anchorMonth, monthStartDay).toMillisRange().second
+        else MonthPeriod.year(anchorMonth.year, monthStartDay).toMillisRange().second
+    val loadingOlder = window?.startMillis != requestedStart || window?.endMillis != requestedEnd
+    val canLoadOlder = mode == PeriodMode.MONTH && earliest?.let { it < requestedStart } == true
 
-    val expense = totalsReady.firstOrNull { it.type == TxType.EXPENSE }?.totalCents ?: 0L
-    val income = totalsReady.firstOrNull { it.type == TxType.INCOME }?.totalCents ?: 0L
 
     // 筛选与分页深度都要跨「进详情页再返回」保留：分页深度若回到首页，
     // rememberLazyListState 恢复出来的 index 会被只排了首页的那点内容夹到页尾。
@@ -223,6 +244,8 @@ fun TransactionListScreen(
     var loadedLimit by rememberSaveable { mutableIntStateOf(FIRST_PAGE_ROWS) }
     var jumpTarget by remember { mutableStateOf<LocalDate?>(null) }
     var pendingJump by remember { mutableStateOf<LocalDate?>(null) }
+    var focusedDayText by rememberSaveable { mutableStateOf<String?>(null) }
+    val focusedDay = focusedDayText?.let(LocalDate::parse)
     var showPicker by remember { mutableStateOf(false) }
     var showFilterSheet by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
@@ -237,6 +260,7 @@ fun TransactionListScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val listState = rememberLazyListState()
+    val animationsEnabled = LocalAnimationsEnabled.current
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -257,22 +281,42 @@ fun TransactionListScreen(
         }
     }
 
-    // 只在“再次点击当前 tab”时回顶：页面从别的 tab 切回来时不应复位已保留的滚动位置
-    var lastReenterTick by remember { mutableIntStateOf(scrollToTopTick) }
-    LaunchedEffect(scrollToTopTick) {
-        if (scrollToTopTick > lastReenterTick) {
-            lastReenterTick = scrollToTopTick
-            listState.animateScrollToItem(0)
-        }
+    // Only an explicit navigation request resets the list; returning from an edit preserves its position.
+    var lastEntryToken by rememberSaveable { mutableIntStateOf(-1) }
+    LaunchedEffect(entryToken) {
+        if (lastEntryToken == entryToken) return@LaunchedEffect
+        lastEntryToken = entryToken
+        manualMonthLoading = true
+        automaticMonthChange = null
+        anchorText = month.toString()
+        loadedMonths = 1
+        loadedLimit = FIRST_PAGE_ROWS
+        filter = TxFilter.ALL
+        categoryIds = emptySet()
+        sort = BillSort.TIME_DESC
+        selecting = false
+        selected = emptySet()
+        focusedDayText = entryDay?.toString()
+        pendingJump = entryDay
+        listState.scrollToItem(0)
     }
     // 周期/筛选变了才回顶：LaunchedEffect 每次重新进入组合（从编辑页返回、切 tab 回来）
     // 都会重跑一遍，无条件 scrollToItem(0) 会把刚恢复好的滚动位置抹掉。
     var lastPeriodKey by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(month, mode) {
         val key = billPeriodKey(month, mode)
+        if (automaticMonthChange == month && mode == PeriodMode.MONTH) {
+            automaticMonthChange = null
+            lastPeriodKey = key
+            return@LaunchedEffect
+        }
         val previous = lastPeriodKey
         lastPeriodKey = key
         if (!shouldResetBillList(previous, key)) return@LaunchedEffect
+        manualMonthLoading = true
+        anchorText = month.toString()
+        loadedMonths = 1
+        if (pendingJump == null) focusedDayText = null
         selecting = false
         selected = emptySet()
         loadedLimit = FIRST_PAGE_ROWS
@@ -298,7 +342,7 @@ fun TransactionListScreen(
     fun confirmRange(title: String, range: Pair<Long, Long>) {
         scope.launch {
             val n = vm.countTransactionsInRange(range.first, range.second)
-            confirm = DeleteConfirm(title, "将删除 $n 条记录，删除后不可恢复。") {
+            confirm = DeleteConfirm(title, "将删除所选月/年范围内的全部 $n 条记录，不受当前收支或分类筛选影响。删除后不可恢复。") {
                 vm.deleteTransactionsInRange(range.first, range.second, report)
             }
         }
@@ -316,11 +360,24 @@ fun TransactionListScreen(
     val filtered = remember(rowsReady, filter, categoryIds) {
         applyBillFilters(rowsReady, filter, categoryIds)
     }
+    val selectableIds = remember(filtered) { filtered.mapTo(mutableSetOf()) { it.id }.toSet() }
+    val selectedInScope = selected.intersect(selectableIds)
+    LaunchedEffect(selectableIds) {
+        // Background updates may remove records or move them out of the active filters.
+        selected = selected.intersect(selectableIds)
+    }
     val sorted = remember(filtered, sort) { sortBills(filtered, sort) }
     // 时间排序：按天分组（吸顶日期头）；金额排序：平铺（行内补日期），要的是整个周期的金额排名
     val byDay = sort.groupedByDay
-    val grouped: Map<LocalDate, List<TransactionRow>> = remember(sorted, byDay) {
-        if (byDay) groupRowsByDay(sorted) else emptyMap()
+    val grouped: Map<LocalDate, List<TransactionRow>> = remember(sorted, byDay, focusedDay, requestedStart, window?.endMillis) {
+        if (!byDay) emptyMap() else {
+            val groups = groupRowsByDay(sorted)
+            val dateMillis = focusedDay?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
+            if (focusedDay != null && dateMillis != null && dateMillis >= requestedStart && dateMillis < (window?.endMillis ?: requestedStart) && focusedDay !in groups) {
+                val withEmptyDay = groups + (focusedDay to emptyList())
+                if (sort == BillSort.TIME_DESC) withEmptyDay.toSortedMap(compareByDescending { it }) else withEmptyDay.toSortedMap()
+            } else groups
+        }
     }
     val allDays = grouped.keys.toList()
     val (shownDays, _) = remember(allDays, grouped, loadedLimit) {
@@ -360,10 +417,46 @@ fun TransactionListScreen(
             }
     }
 
-    LaunchedEffect(pendingJump, shownDays) {
+    LaunchedEffect(window?.startMillis, window?.endMillis, anchorMonth, loadedMonths, mode) {
+        val expectedEnd = if (mode == PeriodMode.MONTH) MonthPeriod.of(anchorMonth, monthStartDay).toMillisRange().second
+            else MonthPeriod.year(anchorMonth.year, monthStartDay).toMillisRange().second
+        if (window?.startMillis == requestedStart && window?.endMillis == expectedEnd) manualMonthLoading = false
+    }
+    LaunchedEffect(listState, rowsReady, mode, monthStartDay, manualMonthLoading, sort, loadedMonths) {
+        if (mode != PeriodMode.MONTH || sort != BillSort.TIME_DESC) return@LaunchedEffect
+        val rowDates = rowsReady.associate { it.id to Instant.ofEpochMilli(it.timestamp).atZone(ZoneId.systemDefault()).toLocalDate() }
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key }
+            .distinctUntilChanged().collect { key ->
+                if (manualMonthLoading || pendingJump != null || vm.month.value > anchorMonth || vm.month.value < anchorMonth.minusMonths((loadedMonths - 1).toLong())) return@collect
+                val date = when (key) {
+                    is Long -> rowDates[key]
+                    is String -> key.takeIf { it.startsWith("d") }?.drop(1)?.toLongOrNull()?.let { LocalDate.ofEpochDay(it) }
+                    else -> null
+                }
+                val visibleMonth = date?.let { YearMonth.from(MonthPeriod.of(it, monthStartDay).start) }
+                if (visibleMonth != null && visibleMonth != vm.month.value) {
+                    automaticMonthChange = visibleMonth
+                    vm.setMonth(visibleMonth)
+                }
+            }
+    }
+    LaunchedEffect(listState, loadedMonths, loadingOlder, canLoadOlder, hasMore, selecting, sort, mode, rowsReady.isEmpty(), pendingJump) {
+        if (mode != PeriodMode.MONTH || sort != BillSort.TIME_DESC || selecting) return@LaunchedEffect
+        snapshotFlow {
+            val info = listState.layoutInfo
+            (listState.isScrollInProgress || !listState.canScrollForward) && pendingJump == null && info.totalItemsCount > 0 &&
+                (info.visibleItemsInfo.lastOrNull()?.index ?: -1) >= info.totalItemsCount - 3
+        }.distinctUntilChanged().collect { atEnd ->
+            if (atEnd && !hasMore && !loadingOlder && canLoadOlder) loadedMonths++
+        }
+    }
+
+    LaunchedEffect(pendingJump, focusedDay, shownDays, manualMonthLoading, loadingOlder) {
         val target = pendingJump ?: return@LaunchedEffect
-        if (allDays.isEmpty()) return@LaunchedEffect
-        val day = allDays.firstOrNull { it <= target } ?: allDays.last()
+        // Navigation state and the queried window may settle in different frames.
+        // Wait for the requested day's marker instead of jumping using the old month's groups.
+        if (manualMonthLoading || loadingOlder || focusedDay != target || target !in grouped) return@LaunchedEffect
+        val day = target
         val index = shownDays.indexOf(day)
         if (index < 0) {
             loadedLimit = maxOf(loadedLimit, rowsUpToDay(allDays, grouped, day))
@@ -378,7 +471,7 @@ fun TransactionListScreen(
     Column(Modifier.fillMaxSize()) {
         EcoTopBar(
             micro = "LEDGER / ${month.year}",
-            title = "账单",
+            title = "流水",
             action = {
                 EcoTopBarIcon(
                     icon = EcoIcons.Search,
@@ -410,22 +503,27 @@ fun TransactionListScreen(
             count = filtered.size,
             filterActive = categoryIds.isNotEmpty(),
             sortActive = sort != BillSort.TIME_DESC,
-            onPrev = { vm.prevPeriod() },
-            onNext = { vm.nextPeriod() },
+            onPrev = { manualMonthLoading = true; vm.prevPeriod() },
+            onNext = { manualMonthLoading = true; vm.nextPeriod() },
             onOpenPicker = { showPicker = true },
-            onFilter = { filter = it },
+            onFilter = {
+                if (filter != it) selected = emptySet()
+                filter = it
+            },
             onOpenFilter = { showFilterSheet = true },
             onOpenSort = { showSortSheet = true },
             onMore = { showBatchSheet = true },
         )
         if (selecting) {
             BatchBar(
-                selectedCount = selected.size,
-                onSelectAll = { selected = rowsReady.map { it.id }.toSet() },
+                selectedCount = selectedInScope.size,
+                onSelectAll = { selected = selectableIds.toSet() },
                 onDelete = {
-                    if (selected.isNotEmpty()) {
-                        confirm = DeleteConfirm("删除已选记录", "将删除 ${selected.size} 条记录，删除后不可恢复。") {
-                            vm.deleteTransactionsByIds(selected) { err ->
+                    val idsToDelete = selectedInScope.toSet()
+                    if (idsToDelete.isNotEmpty()) {
+                        val categoryLabel = if (categoryIds.isEmpty()) "全部分类" else categories.filter { it.id in categoryIds }.joinToString("、") { it.name }
+                        confirm = DeleteConfirm("删除已选记录", "仅删除当前筛选结果中已勾选的 ${idsToDelete.size} 条记录（${filter.label} · $categoryLabel）。\n其他流水会保留。删除后不可恢复。") {
+                            vm.deleteTransactionsByIds(idsToDelete) { err ->
                                 report(err)
                                 if (err == null) {
                                     selecting = false
@@ -439,77 +537,78 @@ fun TransactionListScreen(
             )
         }
         Text(
-            "${filtered.size} 笔",
+            if (mode == PeriodMode.MONTH && loadedMonths > 1) "已加载 $loadedMonths 个月  ${filtered.size} 笔" else "${filtered.size} 笔",
             style = EcoType.PageNote.copy(fontSize = 9.sp),
             color = MaterialTheme.eco.quiet,
             textAlign = TextAlign.End,
             modifier = Modifier.fillMaxWidth().padding(end = 22.dp, top = 2.dp, bottom = 4.dp),
         )
 
-        when {
-            rowsReady.isEmpty() -> BillEmpty(
-                title = "${periodScopeLabel(mode)}还没有记录",
-                body = "点右下角「记账」补一笔，或到「个人」页导入账单。",
-                modifier = Modifier.weight(1f),
-            )
-            filtered.isEmpty() && categoryIds.isNotEmpty() -> BillEmpty(
-                title = "${periodScopeLabel(mode)}没有所选分类的记录",
-                body = "换个分类，或点工具条上的筛选按钮重置。",
-                modifier = Modifier.weight(1f),
-            )
-            filtered.isEmpty() -> BillEmpty(
-                title = "${periodScopeLabel(mode)}没有${filter.label}记录",
-                body = "切回「全部」看看其它记录。",
-                modifier = Modifier.weight(1f),
-            )
-            else -> {
-                Box(Modifier.weight(1f)) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 96.dp, end = 10.dp),
-                    ) {
-                        if (byDay) {
-                            shownDays.forEach { day ->
-                                val dayRows = grouped[day].orEmpty()
-                                stickyHeader(key = "d${day.toEpochDay()}") {
-                                    DayHeader(day = day, dayRows = dayRows, onClickDay = { jumpTarget = day })
-                                }
-                                items(dayRows, key = { it.id }) { row ->
-                                    BillListItem(
-                                        row = row,
-                                        selecting = selecting,
-                                        selected = row.id in selected,
-                                        showDate = false,
-                                        onClick = { onRowClick(row) },
-                                        onLongClick = { onRowLongClick(row) },
-                                    )
-                                }
-                            }
-                        } else {
-                            // 金额排序：平铺，行内补日期（没有日期头，看不出是哪天就没法比金额）
-                            items(shownRows, key = { it.id }) { row ->
-                                BillListItem(
-                                    row = row,
-                                    selecting = selecting,
-                                    selected = row.id in selected,
-                                    showDate = true,
-                                    onClick = { onRowClick(row) },
-                                    onLongClick = { onRowLongClick(row) },
-                                )
+        Box(Modifier.weight(1f)) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().testTag("ledgerList"),
+                contentPadding = PaddingValues(bottom = 96.dp, end = 10.dp),
+            ) {
+                if (filtered.isEmpty() && focusedDay == null) item(key = "emptyMonth") {
+                    Text(if (loadingOlder) "正在读取流水…" else if (canLoadOlder && mode == PeriodMode.MONTH && sort == BillSort.TIME_DESC) "没有符合条件的流水，继续上滑查看历史" else "所选范围没有符合条件的流水",
+                        style = EcoType.PageNote, color = MaterialTheme.eco.muted,
+                        modifier = Modifier.fillMaxWidth().padding(24.dp))
+                }
+                if (byDay) {
+                    shownDays.forEach { day ->
+                        val dayRows = grouped[day].orEmpty()
+                        stickyHeader(key = "d${day.toEpochDay()}") {
+                            DayHeader(day = day, dayRows = dayRows, onClickDay = { jumpTarget = day })
+                        }
+                        if (dayRows.isEmpty()) {
+                            item(key = "emptyDay-$day") {
+                                Text("当天没有流水", color = MaterialTheme.eco.muted, style = EcoType.PageNote,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 24.dp))
                             }
                         }
+                        items(dayRows, key = { it.id }) { row ->
+                            BillListItem(
+                                row = row,
+                                selecting = selecting,
+                                selected = row.id in selected,
+                                showDate = false,
+                                onClick = { onRowClick(row) },
+                                onLongClick = { onRowLongClick(row) },
+                            )
+                        }
                     }
-                    ListScrollbar(
-                        state = listState,
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .fillMaxHeight()
-                            .width(14.dp)
-                            .padding(vertical = 4.dp),
-                    )
+                } else {
+                    // 金额排序：平铺，行内补日期（没有日期头，看不出是哪天就没法比金额）
+                    items(shownRows, key = { it.id }) { row ->
+                        BillListItem(
+                            row = row,
+                            selecting = selecting,
+                            selected = row.id in selected,
+                            showDate = true,
+                            onClick = { onRowClick(row) },
+                            onLongClick = { onRowLongClick(row) },
+                        )
+                    }
+                }
+                if (mode == PeriodMode.MONTH && sort == BillSort.TIME_DESC) {
+                    item(key = "previousMonthLoader") {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
+                            if (loadingOlder) Text("正在衔接上个月…", style = EcoType.PageNote, color = MaterialTheme.eco.muted)
+                            else if (canLoadOlder) Text("继续向下查看更早流水", style = EcoType.PageNote, color = MaterialTheme.eco.quiet)
+                            else Text("已显示全部历史流水", style = EcoType.PageNote, color = MaterialTheme.eco.quiet)
+                        }
+                    }
                 }
             }
+            ListScrollbar(
+                state = listState,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .width(14.dp)
+                    .padding(vertical = 4.dp),
+            )
         }
         Spacer(Modifier.height(ecoBottomContentPadding(extra = 0.dp)))
     }
@@ -518,8 +617,8 @@ fun TransactionListScreen(
         PeriodPickerSheet(
             mode = mode,
             current = month,
-            onSelectMonth = { vm.setMonth(it) },
-            onSelectYear = { vm.setMonth(YearMonth.of(it, month.monthValue)) },
+            onSelectMonth = { manualMonthLoading = true; vm.setMonth(it) },
+            onSelectYear = { manualMonthLoading = true; vm.setMonth(YearMonth.of(it, month.monthValue)) },
             onDismiss = { showPicker = false },
             currentMonth = currentAccountingMonth,
         )
@@ -591,6 +690,7 @@ fun TransactionListScreen(
             categories = categories,
             selected = categoryIds,
             onApply = {
+                if (categoryIds != it) selected = emptySet()
                 categoryIds = it
                 showFilterSheet = false
             },
@@ -614,11 +714,12 @@ fun TransactionListScreen(
             current = day,
             onPick = { picked ->
                 when {
-                    mode == PeriodMode.MONTH && YearMonth.from(picked) != month ->
-                        vm.setMonth(YearMonth.from(picked))
+                    mode == PeriodMode.MONTH && MonthPeriod.monthOf(picked, monthStartDay) != month ->
+                        vm.setMonth(MonthPeriod.monthOf(picked, monthStartDay))
                     mode == PeriodMode.YEAR && picked.year != month.year ->
                         vm.setMonth(YearMonth.of(picked.year, month.monthValue))
                 }
+                focusedDayText = picked.toString()
                 pendingJump = picked
                 jumpTarget = null
             },
@@ -673,15 +774,12 @@ private fun BillToolbar(
                 .padding(vertical = 2.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                if (mode == PeriodMode.MONTH) {
-                    "${month.year}.${month.monthValue.toString().padStart(2, '0')}"
-                } else {
-                    "${month.year}"
-                },
+            com.controleco.app.ui.common.AnimatedPeriodLabel(
+                month = month, mode = mode,
+                label = { value, periodMode -> if (periodMode == PeriodMode.MONTH) "${value.year}.${value.monthValue.toString().padStart(2, '0')}" else "${value.year}" },
+                modifier = Modifier.testTag("ledgerPeriod"),
                 style = EcoType.RowTitle.copy(fontSize = 13.5.sp, fontWeight = FontWeight.Bold),
                 color = c.ink,
-                maxLines = 1,
             )
             Text(
                 if (mode == PeriodMode.MONTH) "MONTH" else "YEAR",
@@ -795,7 +893,7 @@ private fun BatchBar(
         Spacer(Modifier.weight(1f))
         EcoTextAction("全选", onSelectAll)
         Spacer(Modifier.width(4.dp))
-        EcoTextAction("删除", onDelete, color = c.clay)
+        EcoTextAction("删除", onDelete, color = c.clay, enabled = selectedCount > 0)
         Spacer(Modifier.width(4.dp))
         EcoTextAction("取消", onCancel, color = c.muted)
     }
@@ -830,8 +928,7 @@ private fun CoverSheet(
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(
-                // 「夜色」预览跟随当前主题的 hero 渐变，与真实卡片一致
-                Triple(CoverStyleStore.NIGHT, "夜色", listOf(c.heroC, c.heroA)),
+                Triple(CoverStyleStore.NIGHT, "爱丽丝", listOf(c.heroC, c.heroA)),
                 Triple(CoverStyleStore.MIST, "薄雾", listOf(Color(0xFFE7ECE5), Color(0xFFF1F0E7))),
                 Triple(CoverStyleStore.CLAY, "陶土", listOf(Color(0xFF5E2F2A), Color(0xFF8E5241))),
             ).forEach { (id, label, colors) ->
@@ -852,6 +949,7 @@ private fun CoverSheet(
                             .then(if (on) Modifier.border(1.5.dp, c.blue, RoundedCornerShape(12.dp)) else Modifier),
                         contentAlignment = Alignment.Center,
                     ) {
+                        if (id == CoverStyleStore.NIGHT) com.controleco.app.ui.common.AliceFloralBackground(Modifier.matchParentSize())
                         if (on) Text("当前", style = EcoType.Pill.copy(fontSize = 9.sp), color = Color.White)
                     }
                     Spacer(Modifier.height(5.dp))
@@ -896,8 +994,8 @@ private fun BatchSheet(
         subtitle = "删除后不可恢复",
     ) {
         BatchChoice(EcoIcons.Check, "批量管理", "逐笔勾选后删除", c.blue, onBatch)
-        BatchChoice(EcoIcons.Calendar, "删除本周期全部记录…", "只删当前月/年", c.amber, onDeletePeriod)
-        BatchChoice(EcoIcons.Trash, "删除本年全部记录…", "按会计年删除", c.amber, onDeleteYear)
+        BatchChoice(EcoIcons.Calendar, "删除本周期全部记录…", "忽略筛选，只删当前月/年", c.amber, onDeletePeriod)
+        BatchChoice(EcoIcons.Trash, "删除本年全部记录…", "忽略筛选，按会计年删除", c.amber, onDeleteYear)
         BatchChoice(EcoIcons.Warning, "删除全部记录…", "所有月份，含导入的账单", c.clay, onDeleteAll)
     }
 }
@@ -1060,7 +1158,7 @@ internal fun DayHeader(day: LocalDate, dayRows: List<TransactionRow>, onClickDay
         today.minusDays(1) -> "昨天"
         else -> dayOfWeekZh(day.dayOfWeek)
     }
-    val dayExpense = remember(dayRows) { dayRows.filter { it.type == TxType.EXPENSE }.sumOf { it.amountCents } }
+    val dayExpense = remember(dayRows) { dayRows.filter { it.type == TxType.EXPENSE }.sumOf { (it.amountCents - it.refundedCents).coerceAtLeast(0) } }
     val dayIncome = remember(dayRows) { dayRows.filter { it.type == TxType.INCOME }.sumOf { it.amountCents } }
     val dayBalance = dayIncome - dayExpense
     Row(
@@ -1188,10 +1286,10 @@ internal fun BillRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                if (row.refundMark != RefundMark.NONE) {
+                if (row.refundMark != RefundMark.NONE || row.refundedCents > 0) {
                     Spacer(Modifier.width(5.dp))
                     Text(
-                        if (row.refundMark == RefundMark.REFUND_INCOME) "退款" else "已退",
+                        if (row.refundMark == RefundMark.REFUND_INCOME) "退款" else if (row.refundedCents >= row.amountCents) "已退款" else "部分退款",
                         style = EcoType.Pill.copy(fontSize = 8.sp, fontWeight = FontWeight.Bold),
                         color = if (row.refundMark == RefundMark.REFUND_INCOME) c.jade else c.amber,
                     )
@@ -1227,12 +1325,16 @@ internal fun BillRow(
             }
         }
         Spacer(Modifier.width(8.dp))
-        Text(
-            Money.formatSignedCurrency(if (isExpense) -row.amountCents else row.amountCents),
-            style = EcoType.RowTitle.copy(fontSize = 13.5.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp),
-            color = if (isExpense) c.ink else c.jade,
-            maxLines = 1,
-        )
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                Money.formatSignedCurrency(if (isExpense) -row.amountCents else row.amountCents),
+                style = EcoType.RowTitle.copy(fontSize = 13.5.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
+                    textDecoration = if (isExpense && (row.refundedCents > 0 || row.refundMark == RefundMark.REFUNDED_EXPENSE)) androidx.compose.ui.text.style.TextDecoration.LineThrough else null),
+                color = if (row.refundedCents > 0) c.quiet else if (isExpense) c.ink else c.jade, maxLines = 1,
+            )
+            if (isExpense && row.refundedCents > 0) Text("实付 ${Money.formatYuan((row.amountCents - row.refundedCents).coerceAtLeast(0))}",
+                fontSize = 10.sp, color = c.muted)
+        }
     }
 }
 

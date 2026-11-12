@@ -23,8 +23,9 @@ data class TransactionRow(
     val accountId: Long,
     val accountName: String,
     val refundMark: RefundMark,
-    /** 退款收入是否还没被用户处理（true = 出现在「待确认账单」里）。退款与原支出互不关联，没有 id 指向 */
+    /** 退款事件是否尚未找到原支出（true 时出现在待确认页） */
     val refundPending: Boolean = false,
+    val refundedCents: Long = 0,
     /** 入库时间：待确认列表把捕获条目与退款条目按这个排（而不是业务时间） */
     val createdAt: Long = 0,
     /** 不计入预算（只影响预算口径，不影响余额与「实际支出」；见 `data/budget/BudgetShare.kt`） */
@@ -53,11 +54,11 @@ data class AccountBalanceRow(
 
 @Dao
 interface TransactionDao {
+    @Query("SELECT MIN(timestamp) FROM transactions WHERE refundMark != 'REFUND_INCOME'")
+    fun observeEarliestTimestamp(): Flow<Long?>
 
-    /**
-     * 区间内的流水。退款记录（`REFUNDED_EXPENSE` / `REFUND_INCOME`）始终参与查询与统计——
-     * "显示退款记录"开关已删除，退款永远作为收入显示，被退款的原支出照常作为支出显示。
-     */
+
+    /** 流水隐藏原始退款事件，在原支出上显示已退款金额。 */
     @Query(
         """SELECT t.id AS id, t.type AS type, t.amountCents AS amountCents, t.timestamp AS timestamp,
            t.note AS note, t.counterparty AS counterparty, t.source AS source,
@@ -65,37 +66,28 @@ interface TransactionDao {
            a.id AS accountId, a.name AS accountName,
            t.refundMark AS refundMark, t.refundPending AS refundPending,
            t.budgetExcluded AS budgetExcluded, t.aaShares AS aaShares,
-           t.createdAt AS createdAt
+           t.refundedCents AS refundedCents, t.createdAt AS createdAt
            FROM transactions t
            JOIN categories c ON t.categoryId = c.id
            JOIN accounts a ON t.accountId = a.id
            WHERE t.timestamp >= :startMillis AND t.timestamp < :endMillis
+             AND t.refundMark != 'REFUND_INCOME'
            ORDER BY t.timestamp DESC, t.id DESC"""
     )
     fun observeRows(startMillis: Long, endMillis: Long): Flow<List<TransactionRow>>
 
     @Query(
-        """SELECT type AS type, SUM(amountCents) AS totalCents FROM transactions
-           WHERE timestamp >= :startMillis AND timestamp < :endMillis
+        """SELECT type AS type, SUM(CASE WHEN type = 'EXPENSE' THEN MAX(0, amountCents - refundedCents) ELSE amountCents END) AS totalCents FROM transactions
+           WHERE timestamp >= :startMillis AND timestamp < :endMillis AND refundMark != 'REFUND_INCOME'
            GROUP BY type"""
     )
     fun observeTypeTotals(startMillis: Long, endMillis: Long): Flow<List<TypeTotalRow>>
 
-    /**
-     * 本期「实际支出」：**未被标记「已退款」的支出**之和，金额按 **AA 折算**
-     * （AA n 人 → m ÷ n，四舍五入到分；**「不计入预算」不影响这一口径**——钱确实花出去了）。
-     * 规则见 [com.controleco.app.data.budget.BudgetShare.aaSplitCents]，SQL 与之逐字一致。
-     *
-     * 退款收入只作为收入存在，**不再从支出里相减**——退款是成对的记录：
-     * 原支出被标「已退款」后直接不计入支出，退款那笔照常计入收入。
-     *
-     * 统计页「02 实际支出」、分类占比圆环与**预算对比清单**都用这一条口径；
-     * 预算类读数（首页预算卡 / 分类剩余预算）用 [observeBudgetSpendingTotal]。
-     */
+    /** 实际支出：扣除退款后的金额，再按原项目的 AA 规则折算。 */
     @Query(
         """SELECT COALESCE(SUM(
-             CASE WHEN aaShares >= 2 THEN (amountCents + aaShares / 2) / aaShares
-                  ELSE amountCents END), 0)
+             CASE WHEN aaShares >= 2 THEN (MAX(0, amountCents - refundedCents) + aaShares / 2) / aaShares
+                  ELSE MAX(0, amountCents - refundedCents) END), 0)
            FROM transactions
            WHERE timestamp >= :startMillis AND timestamp < :endMillis
              AND type = 'EXPENSE' AND refundMark != 'REFUNDED_EXPENSE'"""
@@ -109,8 +101,8 @@ interface TransactionDao {
      */
     @Query(
         """SELECT c.id AS categoryId, c.name AS categoryName,
-             SUM(CASE WHEN t.aaShares >= 2 THEN (t.amountCents + t.aaShares / 2) / t.aaShares
-                      ELSE t.amountCents END) AS totalCents
+             SUM(CASE WHEN t.aaShares >= 2 THEN (MAX(0, t.amountCents - t.refundedCents) + t.aaShares / 2) / t.aaShares
+                      ELSE MAX(0, t.amountCents - t.refundedCents) END) AS totalCents
            FROM transactions t JOIN categories c ON t.categoryId = c.id
            WHERE t.timestamp >= :startMillis AND t.timestamp < :endMillis
              AND t.type = 'EXPENSE' AND t.refundMark != 'REFUNDED_EXPENSE'
@@ -132,8 +124,8 @@ interface TransactionDao {
     @Query(
         """SELECT COALESCE(SUM(
              CASE WHEN budgetExcluded = 1 THEN 0
-                  WHEN aaShares >= 2 THEN (amountCents + aaShares / 2) / aaShares
-                  ELSE amountCents END), 0)
+                  WHEN aaShares >= 2 THEN (MAX(0, amountCents - refundedCents) + aaShares / 2) / aaShares
+                  ELSE MAX(0, amountCents - refundedCents) END), 0)
            FROM transactions
            WHERE timestamp >= :startMillis AND timestamp < :endMillis
              AND type = 'EXPENSE' AND refundMark != 'REFUNDED_EXPENSE'"""
@@ -148,8 +140,8 @@ interface TransactionDao {
     @Query(
         """SELECT c.id AS categoryId, c.name AS categoryName,
              SUM(CASE WHEN t.budgetExcluded = 1 THEN 0
-                      WHEN t.aaShares >= 2 THEN (t.amountCents + t.aaShares / 2) / t.aaShares
-                      ELSE t.amountCents END) AS totalCents
+                      WHEN t.aaShares >= 2 THEN (MAX(0, t.amountCents - t.refundedCents) + t.aaShares / 2) / t.aaShares
+                      ELSE MAX(0, t.amountCents - t.refundedCents) END) AS totalCents
            FROM transactions t JOIN categories c ON t.categoryId = c.id
            WHERE t.timestamp >= :startMillis AND t.timestamp < :endMillis
              AND t.type = 'EXPENSE' AND t.refundMark != 'REFUNDED_EXPENSE'
@@ -165,6 +157,12 @@ interface TransactionDao {
            GROUP BY a.id"""
     )
     fun observeBalances(): Flow<List<AccountBalanceRow>>
+
+    @Query("SELECT * FROM transactions")
+    suspend fun getAll(): List<TransactionEntity>
+
+    @Query("SELECT * FROM transactions WHERE refundExpenseId = :expenseId")
+    suspend fun refundsFor(expenseId: Long): List<TransactionEntity>
 
     @Query("SELECT * FROM transactions WHERE id = :id")
     suspend fun getById(id: Long): TransactionEntity?
@@ -228,14 +226,19 @@ interface TransactionDao {
            a.id AS accountId, a.name AS accountName,
            t.refundMark AS refundMark, t.refundPending AS refundPending,
            t.budgetExcluded AS budgetExcluded, t.aaShares AS aaShares,
-           t.createdAt AS createdAt
+           t.refundedCents AS refundedCents, t.createdAt AS createdAt
            FROM transactions t
            JOIN categories c ON t.categoryId = c.id
            JOIN accounts a ON t.accountId = a.id
-           WHERE t.type = 'EXPENSE' AND t.refundMark = 'NONE' AND (:amountCents IS NULL OR t.amountCents = :amountCents)
+           WHERE t.type = 'EXPENSE'
+             AND ((:allowSnapshot = 0 AND t.refundMark = 'NONE'
+                   AND (:amountCents IS NULL OR t.amountCents - t.refundedCents >= :amountCents))
+               OR (:allowSnapshot = 1 AND (:amountCents IS NULL OR
+                   t.amountCents - COALESCE((SELECT SUM(r.amountCents) FROM transactions r
+                     WHERE r.refundExpenseId = t.id AND r.refundMark = 'REFUND_INCOME'), 0) >= :amountCents)))
            ORDER BY t.timestamp DESC, t.id DESC"""
     )
-    suspend fun refundCandidates(amountCents: Long?): List<TransactionRow>
+    suspend fun refundCandidates(amountCents: Long?, allowSnapshot: Boolean = false): List<TransactionRow>
 
     // ---------- 待处理的退款收入（已入账，只等用户处理） ----------
 
@@ -250,7 +253,7 @@ interface TransactionDao {
            a.id AS accountId, a.name AS accountName,
            t.refundMark AS refundMark, t.refundPending AS refundPending,
            t.budgetExcluded AS budgetExcluded, t.aaShares AS aaShares,
-           t.createdAt AS createdAt
+           t.refundedCents AS refundedCents, t.createdAt AS createdAt
            FROM transactions t
            JOIN categories c ON t.categoryId = c.id
            JOIN accounts a ON t.accountId = a.id
@@ -271,10 +274,10 @@ interface TransactionDao {
      * 给原支出打「已退款」标记 = 这笔钱不再计入支出。
      * 已有标记的不覆盖；部分退款（账单状态写明只退了一部分）调用方不会调它。
      */
-    @Query("UPDATE transactions SET refundMark = 'REFUNDED_EXPENSE' WHERE id = :expenseId AND refundMark = 'NONE'")
+    @Query("UPDATE transactions SET refundMark = 'REFUNDED_EXPENSE', refundedCents = amountCents WHERE id = :expenseId AND refundMark = 'NONE'")
     suspend fun markExpenseRefunded(expenseId: Long)
 
-    @Query("UPDATE transactions SET refundMark = 'NONE' WHERE id = :expenseId AND type = 'EXPENSE' AND refundMark = 'REFUNDED_EXPENSE'")
+    @Query("UPDATE transactions SET refundMark = 'NONE', refundedCents = 0 WHERE id = :expenseId AND type = 'EXPENSE'")
     suspend fun clearExpenseRefund(expenseId: Long)
 
     @Query(
@@ -300,17 +303,17 @@ interface TransactionDao {
     /** 范围内记录数（含退款标记记录，批量删除不区分显示开关） */
     @Query(
         """SELECT COUNT(*) FROM transactions
-           WHERE timestamp >= :startMillis AND timestamp < :endMillis"""
+           WHERE timestamp >= :startMillis AND timestamp < :endMillis AND refundMark != 'REFUND_INCOME' """
     )
     suspend fun countByRange(startMillis: Long, endMillis: Long): Int
 
     @Query("SELECT COUNT(*) FROM transactions")
     suspend fun countAll(): Int
 
-    @Query("DELETE FROM transactions WHERE id IN (:ids)")
+    @Query("DELETE FROM transactions WHERE id IN (:ids) OR refundExpenseId IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 
-    @Query("DELETE FROM transactions WHERE timestamp >= :startMillis AND timestamp < :endMillis")
+    @Query("DELETE FROM transactions WHERE (timestamp >= :startMillis AND timestamp < :endMillis AND refundMark != 'REFUND_INCOME') OR refundExpenseId IN (SELECT id FROM transactions WHERE timestamp >= :startMillis AND timestamp < :endMillis AND type = 'EXPENSE')")
     suspend fun deleteByRange(startMillis: Long, endMillis: Long)
 
     @Query("DELETE FROM transactions")
@@ -325,7 +328,7 @@ interface TransactionDao {
     @Update
     suspend fun update(tx: TransactionEntity)
 
-    @Query("DELETE FROM transactions WHERE id = :id")
+    @Query("DELETE FROM transactions WHERE id = :id OR refundExpenseId = :id")
     suspend fun deleteById(id: Long)
 }
 

@@ -171,9 +171,9 @@ fun EcoBottomNav(
     val c = MaterialTheme.eco
     val items = remember {
         listOf(
-            EcoNavItem("首页", EcoIcons.Home),
-            EcoNavItem("账单", EcoIcons.List),
-            EcoNavItem("统计", EcoIcons.Chart),
+            EcoNavItem("首页", EcoIcons.PersonalFlower),
+            EcoNavItem("流水", EcoIcons.PersonalLedger),
+            EcoNavItem("概览", EcoIcons.Chart),
             EcoNavItem("个人", EcoIcons.User),
         )
     }
@@ -377,7 +377,7 @@ fun EcoFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
             // 加号固定纯白：渐变提亮后（gradB 亮度 0.234）contentColorOn 会自动选成深墨色，
             // 但 FAB 上的加号是图形不是正文，白色在整条渐变上仍有 3.1:1（图标底线 3:1），
             // 而且白加号在这套「彩色渐变 + 白描边」的观感里才对。
-            Icon(EcoIcons.Plus, contentDescription = "记一笔", tint = Color.White, modifier = Modifier.size(21.dp))
+            Icon(EcoIcons.Plus, contentDescription = "记一笔", tint = c.onAccentGrad, modifier = Modifier.size(21.dp))
         }
     }
 }

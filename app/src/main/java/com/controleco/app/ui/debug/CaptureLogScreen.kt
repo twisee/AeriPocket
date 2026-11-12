@@ -80,7 +80,7 @@ import java.time.format.DateTimeFormatter
  *
  * 结构与原型一致：连接状态 → 通道筛选 → 条数/提示 → 行列表（通道徽标 · 应用 · 时间 →
  * 标题 → 正文两行截断 → 规则 + 状态胶囊）；点行内联展开原始快照，复制原文。
- * debug 构建仍可在 Logcat 用 tag=ControlECO 过滤全量明细（[Ntf]/[Page]/[Sms]）。
+ * debug 构建仍可在 Logcat 用 tag=AeriPocket 过滤全量明细（[Ntf]/[Page]/[Sms]）。
  */
 @Composable
 fun CaptureLogScreen(vm: LedgerViewModel, onBack: () -> Unit) {
@@ -207,7 +207,7 @@ fun CaptureLogScreen(vm: LedgerViewModel, onBack: () -> Unit) {
                 }
                 item(key = "note") {
                     EcoPageNote(
-                        "仅保留最近记录；点条目可展开并复制原文。debug 构建下可在 Logcat 过滤 ControlECO 查看全部明细" +
+                        "仅保留最近记录；点条目可展开并复制原文。debug 构建下可在 Logcat 过滤 AeriPocket 查看全部明细" +
                             "（[Ntf] 通知 / [Page] 页面 / [Sms] 短信）。若长时间无记录，重启手机后重试。",
                         modifier = Modifier.padding(start = 2.dp, end = 2.dp, top = 10.dp),
                     )
@@ -534,5 +534,5 @@ private fun snapshotText(row: CapturedNotificationEntity): String = buildString 
 
 private fun copyToClipboard(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    cm.setPrimaryClip(ClipData.newPlainText("易控钱包 捕获通知", text))
+    cm.setPrimaryClip(ClipData.newPlainText("AeriPocket 捕获通知", text))
 }

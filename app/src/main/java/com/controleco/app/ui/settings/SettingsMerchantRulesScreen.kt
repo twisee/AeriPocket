@@ -2,6 +2,11 @@ package com.controleco.app.ui.settings
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,6 +44,14 @@ import com.controleco.app.ui.common.SettingsNote
 import com.controleco.app.ui.common.SettingsPane
 import com.controleco.app.ui.common.formatTimestamp
 import com.controleco.app.ui.eco.EcoConfirm
+import com.controleco.app.ui.eco.EcoSheet
+import com.controleco.app.ui.eco.EcoField
+import com.controleco.app.ui.eco.EcoChip
+import com.controleco.app.ui.eco.EcoPrimaryButton
+import com.controleco.app.ui.eco.EcoTextAction
+import com.controleco.app.ui.eco.EcoToast
+import com.controleco.app.data.db.CategoryEntity
+import com.controleco.app.data.db.RefundCategory
 import com.controleco.app.ui.eco.EcoEmpty
 import com.controleco.app.ui.eco.EcoPill
 import com.controleco.app.ui.eco.EcoPillTone
@@ -59,6 +72,8 @@ fun SettingsMerchantRulesScreen(vm: LedgerViewModel, onBack: () -> Unit) {
     val categories by vm.categories.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
     var clearAsk by remember { mutableStateOf(false) }
+    var editorOpen by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<MerchantRuleEntity?>(null) }
 
     val categoryNames = remember(categories) { categories.associate { it.id to it.name } }
     val accountNames = remember(accounts) { accounts.associate { it.id to it.name } }
@@ -74,12 +89,13 @@ fun SettingsMerchantRulesScreen(vm: LedgerViewModel, onBack: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "${sorted.size} 条已学规则，最近在前",
+                    "${sorted.size} 条商户规则",
                     style = EcoType.SectionAside,
                     color = MaterialTheme.eco.muted,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                 )
+                EcoTextAction("新增规则", onClick = { editing = null; editorOpen = true })
                 if (sorted.isNotEmpty()) {
                     Text(
                         "清空全部（${sorted.size}）",
@@ -98,8 +114,8 @@ fun SettingsMerchantRulesScreen(vm: LedgerViewModel, onBack: () -> Unit) {
             if (sorted.isEmpty()) {
                 SettingsPane {
                     EcoEmpty(
-                        title = "还没有学到的归类",
-                        body = "确认几笔捕获账单后，这里会出现学到的商户规则",
+                        title = "还没有商户规则",
+                        body = "点新增规则，为常用商户指定分类",
                         icon = EcoIcons.Tag,
                     )
                 }
@@ -111,6 +127,7 @@ fun SettingsMerchantRulesScreen(vm: LedgerViewModel, onBack: () -> Unit) {
                             rule = rule,
                             categoryName = categoryNames[rule.categoryId] ?: "已删除分类",
                             accountName = rule.accountId?.let { accountNames[it] ?: "已删除账户" },
+                            onEdit = { editing = rule; editorOpen = true },
                             onDelete = { vm.deleteMerchantRule(rule.id) },
                         )
                     }
@@ -118,6 +135,18 @@ fun SettingsMerchantRulesScreen(vm: LedgerViewModel, onBack: () -> Unit) {
             }
         }
         item {
+        }
+    }
+
+    if (editorOpen) {
+        MerchantRuleEditor(editing, categories, onDismiss = { editorOpen = false }) { merchant, type, category, done ->
+            vm.saveMerchantRule(editing?.id ?: 0, merchant, type, category) { error, changed ->
+                done(error)
+                if (error == null) {
+                    editorOpen = false
+                    EcoToast.show("已保存，更新 $changed 笔旧账")
+                }
+            }
         }
     }
 
@@ -142,6 +171,7 @@ private fun MerchantRuleRow(
     rule: MerchantRuleEntity,
     categoryName: String,
     accountName: String?,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val c = MaterialTheme.eco
@@ -195,6 +225,7 @@ private fun MerchantRuleRow(
             )
         }
         Spacer(Modifier.width(8.dp))
+        EcoTextAction("修改", onClick = onEdit)
         Text(
             "删除",
             style = EcoType.RowTrail.copy(fontSize = 9.5.sp, fontWeight = FontWeight.W700),
@@ -205,5 +236,45 @@ private fun MerchantRuleRow(
                 .clickable(onClick = onDelete)
                 .padding(horizontal = 6.dp, vertical = 5.dp),
         )
+    }
+}
+
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MerchantRuleEditor(
+    old: MerchantRuleEntity?, categories: List<CategoryEntity>, onDismiss: () -> Unit,
+    onSave: (String, TxType, Long, (String?) -> Unit) -> Unit,
+) {
+    val c=MaterialTheme.eco
+    var merchant by remember { mutableStateOf(old?.matchKey.orEmpty()) }
+    var type by remember { mutableStateOf(old?.type ?: TxType.EXPENSE) }
+    var category by remember { mutableStateOf(old?.categoryId) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    val choices=categories.filter { it.type==type && it.name!=RefundCategory.NAME }
+    LaunchedEffect(type,choices) { if(choices.none { it.id==category }) category=choices.firstOrNull()?.id }
+    EcoSheet(onDismiss=onDismiss,title=if(old==null) "新增商户规则" else "修改商户规则",modifier=Modifier.imePadding()) {
+        EcoField(label="商户名称",value=merchant,onValueChange={ merchant=it;error=null },placeholder="例如：江西理工大学")
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            EcoChip(text="支出",selected=type==TxType.EXPENSE,onClick={ type=TxType.EXPENSE })
+            EcoChip(text="收入",selected=type==TxType.INCOME,onClick={ type=TxType.INCOME })
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("默认分类",style=EcoType.FieldLabel,color=c.muted)
+        Spacer(Modifier.height(8.dp))
+        FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            choices.forEach { item -> EcoChip(text=item.name,selected=category==item.id,onClick={ category=item.id }) }
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("保存后，同商户已有账单会一起更新；之后导入或自动识别也沿用这个分类。",style=EcoType.PageNote,color=c.muted)
+        error?.let { Text(it,style=EcoType.PageNote,color=c.clay) }
+        Spacer(Modifier.height(16.dp))
+        EcoPrimaryButton(text=if(saving) "保存中…" else "保存规则",enabled=!saving && merchant.isNotBlank() && category!=null,onClick={
+            saving=true
+            onSave(merchant,type,requireNotNull(category)) { result -> saving=false;error=result }
+        })
+        Spacer(Modifier.height(18.dp))
     }
 }

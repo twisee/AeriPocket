@@ -403,10 +403,11 @@ private fun ImportPreviewStage(
                     color = c.ink,
                 )
                 Spacer(Modifier.height(4.dp))
-                val incomeCount = bill.rows.count { it.type == TxType.INCOME }
+                val incomeCount = bill.rows.count { it.type == TxType.INCOME && it.refundMark != RefundMark.REFUND_INCOME }
+                val refundEvents = bill.rows.count { it.refundMark == RefundMark.REFUND_INCOME }
                 val expenseCount = bill.rows.count { it.type == TxType.EXPENSE }
                 Text(
-                    "共 ${bill.rows.size} 条（支出 $expenseCount，收入 $incomeCount）；" +
+                    "共 ${bill.rows.size} 条（支出 $expenseCount，收入 $incomeCount，退款 $refundEvents）；" +
                         "已跳过不计收支 ${bill.skippedOtherType} 条、未完成 ${bill.skippedStatus} 条。",
                     style = EcoType.PageNote,
                     color = c.muted,
@@ -414,7 +415,7 @@ private fun ImportPreviewStage(
                 if (bill.refundCount > 0) {
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "其中退款相关 ${bill.refundCount} 条（已入库：退款收入记入收入，被退款的原支出标记为「已退款」、不再计入支出）",
+                        "退款会关联回原支出，不计入收入；无法自动匹配的记录可在待确认中选择原单。",
                         style = EcoType.PageNote,
                         color = c.amber,
                     )
@@ -482,7 +483,7 @@ private fun ImportPreviewStage(
     }
 
     EcoPageNote(
-        "预览只显示前 8 条；导入会跳过已存在的记录（按来源 + 时间 + 金额 + 方向去重）。",
+        "预览只显示前 8 条；重复交易单号会跳过，已存在原单的退款状态会更新。",
     )
 }
 
@@ -496,7 +497,7 @@ private fun ImportPreviewRow(row: ImportedBillRow) {
         append(if (row.refundMark == RefundMark.REFUND_INCOME) RefundCategory.NAME else row.guessedCategoryName)
         if (row.refundMark != RefundMark.NONE) {
             append(" ｜")
-            append(if (row.refundMark == RefundMark.REFUND_INCOME) "退款收入" else "已退款")
+            append(if (row.refundMark == RefundMark.REFUND_INCOME) "退款记录" else "已退款")
         }
     }
     Row(
@@ -524,7 +525,7 @@ private fun ImportPreviewRow(row: ImportedBillRow) {
         }
         Spacer(Modifier.width(8.dp))
         Text(
-            (if (row.type == TxType.EXPENSE) "-" else "+") + Money.formatYuan(row.amountCents),
+            (if (row.refundMark == RefundMark.REFUND_INCOME) "退款 " else if (row.type == TxType.EXPENSE) "-" else "+") + Money.formatYuan(row.amountCents),
             style = EcoType.BillAmount.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
             color = if (row.type == TxType.INCOME) c.jade else c.ink,
             maxLines = 1,

@@ -49,6 +49,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -61,6 +62,8 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
+
+data class LedgerWindow(val startMillis: Long, val endMillis: Long, val rows: List<TransactionRow>)
 
 /**
  * 阶段一的全局 ViewModel：月份切换为流水/统计共用状态；
@@ -294,6 +297,7 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         // （用户不能改名/改类型/删除它，所以补回后不会再消失；已有则不重复插入）
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
+                com.controleco.app.data.db.DefaultData.seedIfNeeded(db)
                 val all = categoryDao.getAll()
                 if (all.none { CategoryRules.isRefundIncome(it.type, it.name) }) {
                     categoryDao.insert(
@@ -501,6 +505,7 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         budgetExcluded: Boolean = false,
         /** AA 人数（0 = 未开启；只对支出生效，超出 2..99 会被归一化为 0） */
         aaShares: Int = 0,
+        rememberMerchantCategory: Boolean = true,
         onResult: (String?) -> Unit = {},
     ) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -510,6 +515,9 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
                     val category = categoryDao.getAll().firstOrNull { it.id == categoryId } ?: error("分类不存在")
                     val old = if (id > 0) txDao.getById(id) ?: error("账单不存在") else null
                     RefundRules.editError(old, type, category)?.let { error(it) }
+                    require(old == null || old.refundedCents == 0L || (amountCents == old.amountCents && accountId == old.accountId && type == old.type)) {
+                        "已退款账单请先撤销退款，再修改金额、账户或方向"
+                    }
                     val updated = (old ?: TransactionEntity(type = type, amountCents = amountCents,
                         categoryId = categoryId, accountId = accountId, timestamp = timestamp)).copy(
                         type = type, amountCents = amountCents, categoryId = categoryId,
@@ -529,8 +537,8 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
                             }
                             com.controleco.app.capture.OverlayFieldGuards.mark(key, changed)
                         }
-                        if (old.source != TxSource.MANUAL && old.refundMark == RefundMark.NONE) {
-                            MerchantRules.learn(merchantRuleDao, type, categoryId, accountId, counterparty, note)
+                        if (rememberMerchantCategory && old.refundMark != RefundMark.REFUND_INCOME && MerchantRules.explicitKeyOf(counterparty) != null) {
+                            persistMerchantRule(0, counterparty, type, categoryId, if (old.source != TxSource.MANUAL) accountId else null)
                         }
                     }
                 }
@@ -563,10 +571,11 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         withContext(Dispatchers.IO) { txDao.countAll() }
 
     fun deleteTransactionsByIds(ids: Collection<Long>, onResult: (String?) -> Unit) {
+        val idsSnapshot = ids.toList()
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                txDao.deleteByIds(ids.toList())
-                AppLog.i("tx", "batch deleted ${ids.size} by ids")
+                txDao.deleteByIds(idsSnapshot)
+                AppLog.i("tx", "batch deleted ${idsSnapshot.size} by ids")
                 withContext(Dispatchers.Main) { onResult(null) }
             } catch (e: Exception) {
                 AppLog.e("tx", "batch delete failed", e)
@@ -603,6 +612,33 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun transactionById(id: Long): TransactionEntity? =
         withContext(Dispatchers.IO) { txDao.getById(id) }
+
+    val earliestLedgerTimestamp: StateFlow<Long?> = txDao.observeEarliestTimestamp()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private val ledgerWindows = linkedMapOf<String, StateFlow<LedgerWindow?>>()
+    fun ledgerWindow(anchor: YearMonth, months: Int, mode: PeriodMode, startDay: Int): StateFlow<LedgerWindow?> {
+        val end = if (mode == PeriodMode.YEAR) MonthPeriod.year(anchor.year, startDay).toMillisRange(zone).second
+            else MonthPeriod.of(anchor, startDay).toMillisRange(zone).second
+        val start = if (mode == PeriodMode.YEAR) MonthPeriod.year(anchor.year, startDay).toMillisRange(zone).first
+            else MonthPeriod.of(anchor.minusMonths((months - 1).coerceAtLeast(0).toLong()), startDay).toMillisRange(zone).first
+        val key = "$anchor|$months|$mode|$startDay"
+        ledgerWindows[key]?.let { return it }
+        val previous = ledgerWindows.values.mapNotNull { it.value }.filter { it.startMillis >= start && it.endMillis == end }
+            .minByOrNull { it.startMillis }
+        val state = txDao.observeRows(start, end).map { LedgerWindow(start, end, it) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), previous)
+        ledgerWindows[key] = state
+        while (ledgerWindows.size > 8) ledgerWindows.remove(ledgerWindows.keys.first())
+        return state
+    }
+
+    suspend fun prepareOverview() {
+        periodRows.first { it != null }
+        periodTotals.first { it != null }
+        periodSpendingTotal.first { it != null }
+        periodCategorySums.first { it != null }
+    }
 
     // ---------- 账户 ----------
 
@@ -902,14 +938,16 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val cats = categoryDao.getAll()
+                val rules = merchantRuleDao.getAll()
                 val entities = bill.rows.map { row ->
                     // 退款收入一律归「退款」分类：导入时按商户名猜出的购物/餐饮对退款行没有意义
                     val categoryId = (if (row.refundMark == RefundMark.REFUND_INCOME) {
                         RefundCategory.incomeCategoryId(cats)
                     } else {
-                        cats.firstOrNull { it.type == row.type && it.name == row.guessedCategoryName }
+                        MerchantRules.categoryIdFrom(rules, cats, row.type, row.counterparty, row.note)
+                            ?: cats.firstOrNull { it.type == row.type && it.name == row.guessedCategoryName }
                             ?.id
-                            ?: cats.firstOrNull { it.type == row.type && it.name == "其他" }?.id
+                            ?: cats.firstOrNull { it.type == row.type && com.controleco.app.data.db.CategoryRules.isFallbackName(it.name) }?.id
                             ?: cats.firstOrNull { it.type == row.type }?.id
                     })
                         ?: error("缺少${if (row.type == TxType.EXPENSE) "支出" else "收入"}分类，请先在分类管理中添加")
@@ -927,12 +965,27 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
                         },
                         externalId = row.externalId,
                         refundMark = row.refundMark,
+                        refundedCents = row.refundedCents,
                         // 导入的退款账单视为「已处理」：账单本身已经把原支出标成「已退款」，
                         // 不需要用户再指认，也不进「待确认账单」。
                         refundPending = false,
                     )
                 }
-                val ids = txDao.insertAllIgnore(entities)
+                val ids = db.withTransaction {
+                    val result = txDao.insertAllIgnore(entities)
+                    // A later export can update refund status without overwriting user categories.
+                    entities.filter { it.type == TxType.EXPENSE && it.refundedCents > 0 && it.externalId != null }.forEach { incoming ->
+                        txDao.findIdByExternalId(requireNotNull(incoming.externalId))?.let { id ->
+                            txDao.getById(id)?.let { old ->
+                                if (incoming.refundedCents > old.refundedCents) txDao.update(old.copy(
+                                    refundedCents = minOf(old.amountCents, incoming.refundedCents),
+                                    refundMark = if (incoming.refundedCents >= old.amountCents) RefundMark.REFUNDED_EXPENSE else RefundMark.NONE))
+                            }
+                        }
+                    }
+                    RefundReconciler.updates(txDao.getAll()).forEach { txDao.update(it) }
+                    result
+                }
                 val inserted = ids.count { it != -1L }
                 val duplicated = ids.count { it == -1L }
                 AppLog.i("import", "committed: inserted=$inserted duplicated=$duplicated")
@@ -1040,6 +1093,36 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     val merchantRules: StateFlow<List<com.controleco.app.data.db.MerchantRuleEntity>> =
         merchantRuleDao.observeRecent()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Explicit mapping uses the existing rule table and updates only matching merchants of the same direction. */
+    private suspend fun persistMerchantRule(id: Long, merchant: String, type: TxType, categoryId: Long, learnedAccount: Long? = null): Int {
+        val key = MerchantRules.explicitKeyOf(merchant) ?: error("请输入完整商户名称")
+        val category = categoryDao.getAll().firstOrNull { it.id == categoryId && it.type == type }
+            ?: error("请选择有效分类")
+        require(!CategoryRules.isRefundIncome(category.type, category.name)) { "退款不能设为商户分类" }
+        val previous = merchantRuleDao.getAll().firstOrNull { it.id == id }
+        val collision = merchantRuleDao.find(key, type)
+        require(previous == null || collision == null || collision.id == previous.id) { "该商户已有规则，请编辑已有规则" }
+        val old = previous ?: collision
+        val rule = com.controleco.app.data.db.MerchantRuleEntity(id = old?.id ?: 0, matchKey = key, type = type,
+            categoryId = categoryId, accountId = learnedAccount ?: old?.accountId, hits = old?.hits ?: 1, updatedAt = System.currentTimeMillis())
+        merchantRuleDao.upsert(rule)
+        var changed = 0
+        txDao.getAll().filter { it.type == type && it.refundMark != RefundMark.REFUND_INCOME && it.categoryId != categoryId &&
+            MerchantRules.match(listOf(rule), it.type, it.counterparty, it.note) != null }.forEach {
+            txDao.updateCategory(it.id, categoryId); changed++
+        }
+        return changed
+    }
+
+    fun saveMerchantRule(id: Long, merchant: String, type: TxType, categoryId: Long, onResult: (String?, Int) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val changed = db.withTransaction { persistMerchantRule(id, merchant.trim(), type, categoryId) }
+                withContext(Dispatchers.Main) { onResult(null, changed) }
+            } catch (e: Exception) { withContext(Dispatchers.Main) { onResult(e.message ?: "保存失败", 0) } }
+        }
+    }
 
     fun deleteMerchantRule(id: Long) {
         viewModelScope.launch(Dispatchers.IO) { merchantRuleDao.deleteById(id) }
@@ -1160,8 +1243,8 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- 登记退款（无金额退款通知 → 选一笔被退款的账单） ----------
 
     /** 不限月份和条数；搜索由候选页按商户、金额及本地日期区间完成。 */
-    suspend fun refundCandidates(amountCents: Long? = null): List<TransactionRow> = withContext(Dispatchers.IO) {
-        txDao.refundCandidates(amountCents?.takeIf { it > 0 })
+    suspend fun refundCandidates(amountCents: Long? = null, allowSnapshot: Boolean = false): List<TransactionRow> = withContext(Dispatchers.IO) {
+        txDao.refundCandidates(amountCents?.takeIf { it > 0 }, allowSnapshot)
     }
 
     suspend fun pendingById(id: Long): PendingTransactionEntity? = withContext(Dispatchers.IO) {

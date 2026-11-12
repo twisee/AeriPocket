@@ -44,7 +44,7 @@ object BillParsers {
     }
 
     fun detect(rows: List<List<String>>): BillSource? {
-        val head = rows.take(25)
+        val head = rows
         fun has(keyword: String) = head.any { row -> row.any { it.contains(keyword) } }
         return when {
             has("微信支付账单明细") || has("交易单号") -> BillSource.WECHAT
@@ -126,6 +126,9 @@ object BillParsers {
                 externalId = cell(iTxnId).ifEmpty { null },
                 guessedCategoryName = CategoryGuesser.guess("$counterparty $goods"),
                 refundMark = mark,
+                refundedCents = if (type == TxType.EXPENSE) {
+                    if (mark == RefundMark.REFUNDED_EXPENSE) amount else extractRefundAmount(status)?.coerceIn(0, amount) ?: 0
+                } else 0,
             )
         }
         return ParsedBill(BillSource.WECHAT, parsed, skipType, skipStatus, refundCount)
@@ -173,6 +176,11 @@ object BillParsers {
         val iPayMethod = col("收/付款").takeIf { it >= 0 } ?: col("支付方式")
         val iNote = col("备注")
 
+        val refundedIds = rows.drop(headerIdx + 1).mapNotNull { cells ->
+            val status = cells.getOrNull(iStatus).orEmpty().trim()
+            val id = cells.getOrNull(iTradeNo).orEmpty().trim()
+            if (status.contains("退款成功") && id.contains('_')) id.substringBefore('_') else null
+        }.toSet()
         val parsed = mutableListOf<ImportedBillRow>()
         var skipType = 0
         var skipStatus = 0
@@ -189,7 +197,9 @@ object BillParsers {
                 inOut == "收入" -> TxType.INCOME
                 inOut == "支出" -> TxType.EXPENSE
                 // 不计收支中的退款到账行（状态"退款成功"）单独收录，其余（充值/提现/理财）跳过
-                status.contains("退款") -> TxType.INCOME
+                status.contains("退款成功") -> TxType.INCOME
+                status.contains("成功") && (cell(iGoods).contains("余额宝") && cell(iGoods).contains("收益发放")) -> TxType.INCOME
+                status.contains("成功") && cell(iGoods).contains("转账收款") -> TxType.INCOME
                 else -> { skipType++; continue }
             }
 
@@ -199,7 +209,7 @@ object BillParsers {
             var mark = RefundMark.NONE
             when {
                 status.contains("退款") && type == TxType.INCOME -> { mark = RefundMark.REFUND_INCOME; refundCount++ }
-                type == TxType.EXPENSE && status == "交易关闭" -> { mark = RefundMark.REFUNDED_EXPENSE; refundCount++ }
+                type == TxType.EXPENSE && status == "交易关闭" && cell(iTradeNo) in refundedIds -> { mark = RefundMark.REFUNDED_EXPENSE; refundCount++ }
                 !(status.contains("成功") || status.contains("已到账")) -> { skipStatus++; continue }
                 else -> {}
             }
@@ -218,7 +228,7 @@ object BillParsers {
             val goods = cell(iGoods)
             val note = cell(iNote).ifEmpty { goods }
             val categoryText = if (iCategory >= 0) cell(iCategory) else ""
-            val guessed = CategoryGuesser.fromAlipayCategory(categoryText)
+            val guessed = if (type == TxType.INCOME && (goods.contains("余额宝") && goods.contains("收益发放"))) "理财" else CategoryGuesser.fromAlipayCategory(categoryText)
                 ?: CategoryGuesser.guess("$counterparty $goods")
             parsed += ImportedBillRow(
                 type = type,
@@ -231,6 +241,7 @@ object BillParsers {
                 externalId = cell(iTradeNo).ifEmpty { null },
                 guessedCategoryName = guessed,
                 refundMark = mark,
+                refundedCents = if (mark == RefundMark.REFUNDED_EXPENSE) amount else 0,
             )
         }
         return ParsedBill(BillSource.ALIPAY, parsed, skipType, skipStatus, refundCount)

@@ -21,6 +21,7 @@ internal fun filterRefundCandidates(
     startDate: LocalDate? = null,
     endDate: LocalDate? = null,
     zone: ZoneId = ZoneId.systemDefault(),
+    allowSnapshot: Boolean = false,
 ): List<TransactionRow> {
     val exact = capturedAmount?.takeIf { it > 0 }
     val amount = amountQueryOf(AmountMode.RANGE, "", minAmount, maxAmount)
@@ -29,8 +30,8 @@ internal fun filterRefundCandidates(
     val last = if (reversed) startDate else endDate
     return rows.filter { row ->
         val date = Instant.ofEpochMilli(row.timestamp).atZone(zone).toLocalDate()
-        row.type == TxType.EXPENSE && row.refundMark != RefundMark.REFUNDED_EXPENSE &&
-            (if (exact != null) row.amountCents == exact else
+        row.type == TxType.EXPENSE && (allowSnapshot || row.refundMark != RefundMark.REFUNDED_EXPENSE) &&
+            (if (exact != null) row.amountCents - (if (allowSnapshot) 0 else row.refundedCents) >= exact else
                 merchantMatches(row.counterparty, merchant) && amountMatches(row.amountCents, amount)) &&
             (first == null || date >= first) && (last == null || date <= last)
     }

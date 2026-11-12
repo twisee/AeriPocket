@@ -21,6 +21,7 @@ data class ImportedBillRow(
     val externalId: String?,
     val guessedCategoryName: String,
     val refundMark: RefundMark = RefundMark.NONE,
+    val refundedCents: Long = 0,
 )
 
 /** 一个账单文件的解析结果 */

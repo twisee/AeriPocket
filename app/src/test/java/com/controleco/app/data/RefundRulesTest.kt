@@ -18,10 +18,11 @@ class RefundRulesTest {
     private val expenseCategory = CategoryEntity(id = 1, name = "餐饮", type = TxType.EXPENSE)
 
     @Test
-    fun `captured refund requires exact amount while amountless refund accepts any valid expense`() {
+    fun `captured refund accepts partial amount up to remaining expense`() {
         assertNull(RefundRules.expenseError(expense))
         assertNull(RefundRules.expenseError(expense, 2500))
-        assertNotNull(RefundRules.expenseError(expense, 2499))
+        assertNull(RefundRules.expenseError(expense, 2499))
+        assertNotNull(RefundRules.expenseError(expense.copy(refundedCents = 1000), 1501))
         assertNotNull(RefundRules.expenseError(expense, 2501))
         assertNotNull(RefundRules.expenseError(expense, -1))
     }

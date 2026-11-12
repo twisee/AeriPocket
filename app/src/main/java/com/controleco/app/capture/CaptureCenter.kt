@@ -46,6 +46,8 @@ import com.controleco.app.data.db.TxType
 import com.controleco.app.util.AppLog
 import com.controleco.app.util.Money
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -69,7 +71,7 @@ import kotlin.coroutines.resume
  * - 「入账提醒」：捕获时发横幅通知（也是卡片弹不出时的兜底）；
  * - 「悬浮窗入账」：弹出底部确认卡，关闭卡片/长时间无操作视为入账，点「忽略」才不入账；
  * - 「自动入账」：识别到即直接记账（与悬浮窗入账互斥），条目留 AUTO 记录供页面回填。
- * debug 构建可全量记录（设置开关），Logcat tag=ControlECO 便于真实样本调试。
+ * debug 构建可全量记录（设置开关），Logcat tag=AeriPocket 便于真实样本调试。
  * 开发者功能「记录记账来源」开启时，另把每次入账相关捕获的原始来源写入溯源表（见 traceCapture）。
  */
 object CaptureCenter {
@@ -127,6 +129,8 @@ object CaptureCenter {
     private const val TRACE_KEEP_ROWS = 1_000
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** Serialize capture read-match-write across Room suspension points. */
+    private val captureCommitMutex = Mutex()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val recentKeys = LinkedHashMap<String, Long>()
 
@@ -1291,7 +1295,7 @@ object CaptureCenter {
     }
 
     fun isA11yCaptureEnabled(): Boolean =
-        prefs().getBoolean(KEY_A11Y_CAPTURE_ENABLED, true)
+        prefs().getBoolean(KEY_A11Y_CAPTURE_ENABLED, false)
 
     fun setA11yCaptureEnabled(enabled: Boolean) {
         prefs().edit().putBoolean(KEY_A11Y_CAPTURE_ENABLED, enabled).apply()
@@ -1529,6 +1533,7 @@ object CaptureCenter {
         }
 
         scope.launch {
+            captureCommitMutex.withLock {
             try {
                 // 通知的 when 不保证等于真实发布时间：零值/未来/一天前一概回落到系统 postTime/采集时刻，
                 // 避免异常时间污染分钟去重桶与账单日期
@@ -1919,6 +1924,7 @@ object CaptureCenter {
                 )
             } catch (e: Exception) {
                 AppLog.e("Ntf", "capture handling failed", e)
+            }
             }
         }
     }
@@ -2949,10 +2955,12 @@ object CaptureCenter {
         }
 
         scope.launch {
+            captureCommitMutex.withLock {
             try {
                 handlePageSnapshot(snapshot, captureAll, isDebugBuild)
             } catch (e: Exception) {
                 AppLog.e("Page", "page capture handling failed", e)
+            }
             }
         }
     }
@@ -3969,7 +3977,7 @@ object CaptureCenter {
             return
         }
         mainHandler.postDelayed({
-            postCaptureNotification("测试通知（易控钱包）", "这是一条样例动账提醒 · 点击应进入待确认队列", ROUTE_PENDING)
+            postCaptureNotification("测试通知（AeriPocket）", "这是一条样例动账提醒 · 点击应进入待确认队列", ROUTE_PENDING)
             toast("延迟测试：通知已发送")
         }, 20_000L)
         onResult("已安排：20 秒后发送测试通知（可切到任意界面等待）")

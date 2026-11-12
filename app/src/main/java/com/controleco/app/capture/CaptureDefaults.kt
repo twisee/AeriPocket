@@ -34,7 +34,7 @@ internal object CaptureDefaults {
         categorySuggestionId(categories, type, counterparty.ifBlank { merchantHint }, note, learnedRules)
             ?.let { return it }
         // 3) 该方向的其他/第一个
-        return categories.firstOrNull { it.type == type && it.name == "其他" }?.id
+        return categories.firstOrNull { it.type == type && com.controleco.app.data.db.CategoryRules.isFallbackName(it.name) }?.id
             ?: categories.firstOrNull {
                 it.type == type && !(it.type == TxType.INCOME && it.name == RefundCategory.NAME)
             }?.id

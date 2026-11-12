@@ -25,3 +25,16 @@ docs/book/
 
 # 本地 Gradle 用户目录（native-platform / 依赖缓存，不入库）
 /.gradle-home/
+
+# Local build logs, signing material and install artifacts
+*.log
+*.jks
+*.keystore
+*.apk
+*.aab
+*.apks
+*.db
+*.db-shm
+*.db-wal
+*.hprof
+/.publish/

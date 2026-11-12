@@ -13,7 +13,7 @@ import com.controleco.app.capture.AccBookAccessibilityService
  * 把**注册组件的类名**放到与系统「随选朗读」一致的位置，是为了验证"页面节点可见性是否
  * 与无障碍组件身份有关"这一**兼容性**问题。它不带来任何额外能力：
  * - 不改变 applicationId，不改任何业务包名，不申请系统签名/系统 UID/隐藏 API；
- * - 系统无障碍设置里显示的名称、图标与说明仍是 ControlECO 自己
+ * - 系统无障碍设置里显示的名称、图标与说明仍是 AeriPocket 自己
  *   （见 `res/values/strings.xml` 的 `a11y_service_label` / `a11y_service_description`），
  *   不冒称系统或 Google 官方服务；
  * - 事件接收、节点读取、页面快照与后续入账链路**全部**由父类

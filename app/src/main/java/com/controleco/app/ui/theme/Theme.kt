@@ -130,6 +130,18 @@ enum class EcoAccent(
         secondaryShift = -86f,
     ),
 
+    /** Optional warm-yellow accents on the same white/graphite ECO surfaces. */
+    Sunshine(
+        "sunshine", "晴黄", "暖黄",
+        Family(0xFFE8BB42, 0xFF705310, 0xFFD3A22D, 0xFFFFE49B, 0xFFFFF2CB, 0xFFFFFCF2),
+        Family(0xFFF3CE68, 0xFFFFE6A1, 0xFFDEB64C, 0xFFFFE9AD, 0xFF393322, 0xFF29261E),
+        heroA = Color(0xFF161616), heroB = Color(0xFF222222), heroC = Color(0xFF303030),
+        accentGradA = Color(0xFFFFDF77), accentGradB = Color(0xFFF2C64E), accentGradC = Color(0xFFE8B936),
+        secondaryShift = 12f,
+        neutral = Neutral.WHITE,
+        neutralDark = Neutral.GRAPHITE,
+    ),
+
     /**
      * 白主题：大面积背景/卡片为**纯白**，中性色改为中性灰（不再偏青绿），
      * 强调色用墨黑——最克制、最现代的一套；渐变与实心块走石墨灰，靠留白和层次取胜。
@@ -582,7 +594,7 @@ fun ecoColors(dark: Boolean, accent: EcoAccent): EcoColors {
     val s = b.rotated(accent.secondaryShift)
     val n = neutralsFor(dark, accent)
     // 纯白主题是无彩色定位，封面/按钮不跟着加饱和，反而要压掉原始那点蓝味
-    val monochrome = accent.neutral == Neutral.WHITE && accent.neutralDark == Neutral.GRAPHITE
+    val monochrome = accent == EcoAccent.White
     val heroSat = if (monochrome) NEUTRAL_SAT_SCALE else HERO_SAT_SCALE
     val gradSat = if (monochrome) NEUTRAL_SAT_SCALE else GRAD_SAT_SCALE
     return EcoColors(
@@ -629,10 +641,10 @@ fun ecoColors(dark: Boolean, accent: EcoAccent): EcoColors {
         violetSoft = if (dark) Color(0xFF3C354B) else Color(0xFFF1EAF5),
         heroA = vividTone(accent.heroA, HERO_LUMA_A, heroSat),
         heroB = vividTone(accent.heroB, HERO_LUMA_B, heroSat),
-        heroC = vividTone(accent.heroC, HERO_LUMA_C, heroSat),
-        accentGradA = vividTone(accent.accentGradA, GRAD_LUMA_A, gradSat),
-        accentGradB = vividTone(accent.accentGradB, GRAD_LUMA_B, gradSat),
-        accentGradC = vividTone(accent.accentGradC, GRAD_LUMA_C, gradSat),
+        heroC = vividTone(accent.heroC, if (accent == EcoAccent.Sunshine) 0.160f else HERO_LUMA_C, heroSat),
+        accentGradA = if (accent == EcoAccent.Sunshine) accent.accentGradA else vividTone(accent.accentGradA, GRAD_LUMA_A, gradSat),
+        accentGradB = if (accent == EcoAccent.Sunshine) accent.accentGradB else vividTone(accent.accentGradB, GRAD_LUMA_B, gradSat),
+        accentGradC = if (accent == EcoAccent.Sunshine) accent.accentGradC else vividTone(accent.accentGradC, GRAD_LUMA_C, gradSat),
     )
 }
 

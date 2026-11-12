@@ -24,7 +24,7 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
-/** 捕获退款与历史待处理退款共用候选页；不创建两笔交易的持久关联。 */
+/** 捕获退款与历史待处理退款共用候选页；选择后持久保存原支出关联。 */
 @Composable
 fun RefundLinkScreen(
     vm: LedgerViewModel,
@@ -58,7 +58,7 @@ fun RefundLinkScreen(
                 available = refund?.refundPending == true && refund.refundMark == RefundMark.REFUND_INCOME
                 amount = refund?.amountCents?.takeIf { it > 0 }
             }
-            if (available) rows = vm.refundCandidates(amount)
+            if (available) rows = vm.refundCandidates(amount, allowSnapshot = legacyRefundId != null)
         } catch (failure: Exception) {
             if (failure is kotlinx.coroutines.CancellationException) throw failure
             error = "加载失败"
@@ -67,7 +67,7 @@ fun RefundLinkScreen(
         }
     }
     val visible = remember(rows, amount, merchant, minAmount, maxAmount, startDate, endDate) {
-        filterRefundCandidates(rows, amount, merchant, minAmount, maxAmount, startDate, endDate)
+        filterRefundCandidates(rows, amount, merchant, minAmount, maxAmount, startDate, endDate, allowSnapshot = legacyRefundId != null)
     }
     fun pick(row: TransactionRow) {
         if (submitting || !available) return

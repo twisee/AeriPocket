@@ -341,6 +341,7 @@ open class CheckoutPageParser(protected val profile: CheckoutProfile) : AppPageP
      * 所以锚点前后都要看，但一律排除优惠/余额/运费上下文。
      */
     protected open fun successAmount(snapshot: PageSnapshot, anchorIdx: Int): String? {
+        PageParseSupport.explicitPaidAmount(snapshot)?.let { return it }
         PageParseSupport.amountInAnchor(snapshot.lines[anchorIdx])?.let { return it }
         val window = listOf(anchorIdx - 1, anchorIdx + 1, anchorIdx - 2, anchorIdx + 2)
         for (i in window) {
@@ -513,6 +514,18 @@ object MeituanPageParser : CheckoutPageParser(
      * 美团外卖的商户固定为来源名"美团外卖"（真机确认：结果页没有商户节点，
      * 兜底扫描只会抓到订单号或按钮文案）；美团 App 本身的订单详情有商家名称，正常提取。
      */
+    private fun awaitingPaidAmount(snapshot: PageSnapshot): Boolean =
+        listOf("原价", "商品总额", "券前", "优惠前", "优惠券", "已优惠", "优惠金额").any { snapshot.joined.contains(it) } &&
+            PageParseSupport.explicitPaidAmount(snapshot) == null
+
+    override fun successCandidate(snapshot: PageSnapshot, flow: PageFlow): PageParseResult =
+        if (awaitingPaidAmount(snapshot)) PageParseResult.SceneOnly(PageScene.PAYMENT_SUCCESS, TradeState.SUCCESS, "美团实付金额尚未确认")
+        else super.successCandidate(snapshot, flow)
+
+    override fun detailCandidate(snapshot: PageSnapshot, flow: PageFlow): PageParseResult =
+        if (awaitingPaidAmount(snapshot)) PageParseResult.SceneOnly(PageScene.PAYMENT_SUCCESS, TradeState.SUCCESS, "美团实付金额尚未确认")
+        else super.detailCandidate(snapshot, flow)
+
     override fun merchantOf(snapshot: PageSnapshot, anchorIdx: Int, flow: PageFlow): String =
         if (snapshot.packageName == NotificationRules.MEITUAN_TAKEOUT) "美团外卖"
         else super.merchantOf(snapshot, anchorIdx, flow)

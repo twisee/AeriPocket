@@ -93,7 +93,7 @@ private val REWARD_CODES = listOf(
         title = "微信",
         latin = "WECHAT PAY",
         resId = R.drawable.reward_wechat,
-        fileBase = "易控钱包-微信收款码",
+        fileBase = "AeriPocket-微信收款码",
         extension = "png",
         tint = Color(0xFF2E9E5B),
         icon = EcoIcons.Gift,
@@ -103,7 +103,7 @@ private val REWARD_CODES = listOf(
         title = "支付宝",
         latin = "ALIPAY",
         resId = R.drawable.reward_alipay,
-        fileBase = "易控钱包-支付宝收款码",
+        fileBase = "AeriPocket-支付宝收款码",
         extension = "jpg",
         tint = Color(0xFF2E6FBF),
         icon = EcoIcons.Wallet,
@@ -186,7 +186,7 @@ fun RewardScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             EcoPageLead(
-                "易控钱包完全本地运行、没有广告，也没有云端账号。" +
+                "AeriPocket完全本地运行、没有广告，也没有云端账号。" +
                     "如果它帮你省下了对账的时间，可以请作者喝一杯咖啡。",
             )
             REWARD_CODES.forEach { code ->

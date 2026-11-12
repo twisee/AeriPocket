@@ -39,7 +39,7 @@
 
     <application
         android:name=".AccBookApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
@@ -62,7 +62,7 @@
             android:name="android.app.shortcuts"
             android:resource="@xml/shortcuts" />
 
-        <!-- 分享入口：把账单文件（csv/xlsx）分享到 易控钱包 → 落盘缓存 → 跳账单导入并预解析 -->
+        <!-- 分享入口：把账单文件（csv/xlsx）分享到 AeriPocket → 落盘缓存 → 跳账单导入并预解析 -->
         <activity
             android:name=".ShareImportActivity"
             android:exported="true"
@@ -121,7 +121,7 @@
           它只继承、不新增任何采集逻辑；事件处理与节点读取全部在
           `com.controleco.app.capture.AccBookAccessibilityService`（见 docs/无障碍页面捕获兼容性.md）。
           APK 内**只有这一个**页面采集组件：父类不再单独声明，避免出现两套同时运行的服务。
-          系统设置里显示的名称/说明来自 @string/a11y_service_label / a11y_service_description（ControlECO 自己）。
+          系统设置里显示的名称/说明来自 @string/a11y_service_label / a11y_service_description（AeriPocket 自己）。
         -->
         <service
             android:name="com.google.android.accessibility.selecttospeak.SelectToSpeakService"

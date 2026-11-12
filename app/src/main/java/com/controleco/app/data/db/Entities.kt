@@ -15,13 +15,7 @@ enum class CaptureChannel { NOTIFICATION, A11Y, SMS }
 /** 交易来源：手动输入 / 微信账单 / 支付宝账单 / 通知捕获（含页面/短信/银行推送，外部凭去重键区分）/ 银行动账 */
 enum class TxSource { MANUAL, WECHAT, ALIPAY, NOTIFICATION, BANK }
 
-/**
- * 退款标记：
- * - NONE：普通记录
- * - REFUNDED_EXPENSE：被标记退款的支出（钱已退回，另有对应的退款收入记录）
- * - REFUND_INCOME：退款到账收入（微信"XXX-退款"收入行 / 支付宝"退款成功"行）
- * 退款记录始终入库、始终显示、始终计入汇总。
- */
+/** 退款原始事件保留在账本内用于去重和账户对账，流水及收支统计只呈现原支出的净额。 */
 enum class RefundMark { NONE, REFUNDED_EXPENSE, REFUND_INCOME }
 
 @Entity(tableName = "accounts")
@@ -78,17 +72,13 @@ data class TransactionEntity(
     /** 外部单号（微信交易单号/支付宝交易号/捕获去重键），用于账单重复导入与捕获去重；手动记录为 null */
     val externalId: String? = null,
     val refundMark: RefundMark = RefundMark.NONE,
-    /**
-     * 退款收入是否还没被用户处理（决定它是否出现在「待确认账单」里）。
-     *
-     * **退款与原支出互不关联**：支出只被打上 [RefundMark.REFUNDED_EXPENSE]（已退款、不再计入支出），
-     * 退款收入只被打上「已处理」（`refundPending = false`、照常计入收入），两者之间没有 id 关系。
-     * 账单导入时账单自己就把该标的都标好了，所以导入的退款 = false，不打扰用户。
-     *
-     * - 账单导入的退款收入 = false；
-     * - 旧版捕获的退款收入可能为 true，选中原支出后清除；新版捕获先保存 pending，处理时收入为 false；
-     * - 迁移 v12 之前入库的历史退款 = false（不打扰用户）。
-     */
+    /** 原支出累计已退金额，退款事件不作为收入展示。 */
+    @ColumnInfo(defaultValue = "0")
+    val refundedCents: Long = 0,
+    /** 退款事件精确指向原支出；0 为尚未关联。 */
+    @ColumnInfo(defaultValue = "0")
+    val refundExpenseId: Long = 0,
+    /** 仅未找到确切原支出的退款事件进入待确认页。 */
     @ColumnInfo(defaultValue = "0")
     val refundPending: Boolean = false,
     /**

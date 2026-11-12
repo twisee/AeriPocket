@@ -115,10 +115,12 @@ internal object CrossAppLinker {
         if (page.type != other.type) return null
         if (page.isRefund != other.isRefund) return null
         if (isMoneyMovement(page) || isMoneyMovement(other)) return null
-        // 两侧都有商户名时至少一方包含另一方；商户明显冲突就不是同一笔
-        if (merchantConflicts(page, other)) return null
-
         val delta = abs(page.time - other.time)
+        // A shared order ID outranks differing display / acquiring names.
+        if (delta <= WINDOW_MS && page.orderId.isNotBlank() && page.orderId == other.orderId && !channelConflicts(page, other)) {
+            return LinkReason.ORDER_ID
+        }
+        if (merchantConflicts(page, other)) return null
         val channel = CrossChannelDedup.channelClass(other.sourcePackage)
 
         if (delta <= WINDOW_MS) {
@@ -235,8 +237,10 @@ internal object CrossAppLinker {
         }
     }
 
-    private fun normalizeMerchant(text: String): String =
-        text.trim().replace(" ", "").replace("（", "(").replace("）", ")").take(30)
+    private fun normalizeMerchant(text: String): String {
+        val value = text.trim().replace(" ", "").replace("（", "(").replace("）", ")").take(30)
+        return if (value in setOf("支付宝", "支付宝消费", "微信支付", "微信消费", "支付成功", "收款方")) "" else value
+    }
 
     /** 从支付方式文本里取银行名与尾号（不保存完整卡号） */
     private data class PaymentInstrumentSnapshot(val bankName: String?, val tail: String?) {

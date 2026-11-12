@@ -16,6 +16,6 @@ object RefundCategory {
 
     fun incomeCategoryId(categories: List<CategoryEntity>): Long? =
         categories.firstOrNull { it.type == TxType.INCOME && it.name == NAME }?.id
-            ?: categories.firstOrNull { it.type == TxType.INCOME && it.name == "其他" }?.id
+            ?: categories.firstOrNull { it.type == TxType.INCOME && com.controleco.app.data.db.CategoryRules.isFallbackName(it.name) }?.id
             ?: categories.firstOrNull { it.type == TxType.INCOME }?.id
 }

@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -265,6 +266,7 @@ fun AccBookNav(
                 vm = vm,
                 onBack = { navController.popBackStack() },
                 onOpenPermissions = { navController.navigate("settings/permissions") },
+                onOpenAccessibility = { navController.navigate("settings/accessibility") },
                 onOpenWatchedApps = { navController.navigate("settings/watchedApps") },
                 onOpenMerchantRules = { navController.navigate("settings/merchantRules") },
                 onOpenPending = { navController.navigate("pending") },
@@ -296,6 +298,16 @@ fun AccBookNav(
                 onOpenOverlayPermission = openOverlayPermission,
             )
         }
+        composable("settings/accessibility") {
+            SettingsPermissionScreen(
+                vm = vm,
+                onBack = { navController.popBackStack() },
+                onOpenNotificationAccess = openNotificationAccess,
+                onOpenAccessibilitySettings = openAccessibilitySettings,
+                onOpenOverlayPermission = openOverlayPermission,
+                accessibilityOnly = true,
+            )
+        }
         composable("settings/watchedApps") {
             SettingsWatchedAppsScreen(onBack = { navController.popBackStack() })
         }
@@ -313,7 +325,7 @@ fun AccBookNav(
         composable("settings/about") {
             SettingsAboutScreen(onBack = { navController.popBackStack() })
         }
-        // 帮助页：内容源 docs/说明/软件说明.md（设置 → 关于 → 帮助 进入，入口在「关于易控钱包」行之上）
+        // 帮助页：内容源 docs/说明/软件说明.md（设置 → 关于 → 帮助 进入，入口在「关于AeriPocket」行之上）
         composable("settings/help") {
             SettingsHelpScreen(onBack = { navController.popBackStack() })
         }
@@ -380,6 +392,12 @@ private fun MainScaffold(
     // 再次点击当前标签 → 计数 +1，由页面自己"回到顶部"（列表/滚动页通用）
     var reenterTick by rememberSaveable { mutableIntStateOf(0) }
     val tabStates = rememberSaveableStateHolder()
+    var ledgerEntryToken by rememberSaveable { mutableIntStateOf(0) }
+    var ledgerEntryDay by rememberSaveable { mutableStateOf<String?>(null) }
+    val transitionScope = androidx.compose.runtime.rememberCoroutineScope()
+    val homeExit = remember { Animatable(0f) }
+    var revealingOverview by remember { mutableStateOf(false) }
+    var openingOverview by remember { mutableStateOf(false) }
 
     // 切 tab 只保留当前页：旧页立即移除，新页整体上移 10dp 就位。
     // 不做两页叠加/整页 alpha：那会让旧页透出来（重影），还要多一层全屏离屏缓冲，明显掉帧。
@@ -402,13 +420,41 @@ private fun MainScaffold(
         Box(
             Modifier
                 .fillMaxSize()
-                .graphicsLayer { translationY = (1f - pageIn.value) * TAB_RISE_DP.dp.toPx() },
+                .graphicsLayer {
+                    translationY = if (tab == 0) -homeExit.value * 32.dp.toPx()
+                        else (1f - pageIn.value) * (if (revealingOverview) 44.dp.toPx() else TAB_RISE_DP.dp.toPx())
+                    alpha = if (tab == 0) 1f - homeExit.value else if (revealingOverview) pageIn.value else 1f
+                },
         ) {
             tabStates.SaveableStateProvider(tab) {
                 TabPage(
                     tab = tab,
                     vm = vm,
                     reenterTick = reenterTick,
+                    ledgerEntryToken = ledgerEntryToken,
+                    ledgerEntryDay = ledgerEntryDay?.let(java.time.LocalDate::parse),
+                    onOpenLedger = { month, day ->
+                        vm.setPeriodMode(com.controleco.app.data.PeriodMode.MONTH)
+                        vm.setMonth(month)
+                        ledgerEntryDay = day?.toString()
+                        ledgerEntryToken++
+                        revealingOverview = false
+                        hasSwitched = true
+                        tab = 1
+                    },
+                    onOpenOverview = {
+                        if (!openingOverview) transitionScope.launch {
+                            openingOverview = true
+                            try {
+                                vm.prepareOverview()
+                                if (animationsEnabled) homeExit.animateTo(1f, tween(160, easing = FastOutSlowInEasing))
+                                revealingOverview = true
+                                hasSwitched = true
+                                tab = 2
+                                homeExit.snapTo(0f)
+                            } finally { openingOverview = false }
+                        }
+                    },
                     onEditTransaction = onEditTransaction,
                     onOpenAccount = onOpenAccount,
                     onOpenImport = onOpenImport,
@@ -423,9 +469,17 @@ private fun MainScaffold(
         EcoBottomNav(
             selected = tab,
             onSelect = { index ->
+                if (index == 1 && tab == 1) {
+                    vm.refreshToday()
+                    vm.setPeriodMode(com.controleco.app.data.PeriodMode.MONTH)
+                    vm.setMonth(com.controleco.app.data.budget.MonthPeriod.monthOf(java.time.LocalDate.now(), vm.monthStartDay.value))
+                    ledgerEntryDay = null
+                    ledgerEntryToken++
+                }
                 if (tab == index) {
                     reenterTick++
                 } else {
+                    revealingOverview = false
                     hasSwitched = true
                     tab = index
                 }
@@ -434,7 +488,7 @@ private fun MainScaffold(
         )
         // FAB 只属于首页/账单：跟当前页走，切换时淡出+缩小，不要突然消失
         AnimatedVisibility(
-            visible = tab == 0 || tab == 1,
+            visible = tab == 1,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 19.dp, bottom = ecoFabBottomOffset()),
@@ -454,6 +508,10 @@ private fun TabPage(
     tab: Int,
     vm: LedgerViewModel,
     reenterTick: Int,
+    ledgerEntryToken: Int,
+    ledgerEntryDay: java.time.LocalDate?,
+    onOpenLedger: (java.time.YearMonth, java.time.LocalDate?) -> Unit,
+    onOpenOverview: () -> Unit,
     onEditTransaction: (Long) -> Unit,
     onOpenAccount: () -> Unit,
     onOpenImport: () -> Unit,
@@ -464,19 +522,16 @@ private fun TabPage(
     onOpenReward: () -> Unit,
 ) {
     when (tab) {
-        0 -> HomeScreen(
-            vm = vm,
-            onOpenSettings = onOpenSettings,
-            onOpenCategories = onOpenCategories,
-        )
+        0 -> com.controleco.app.ui.personal.PersonalHomeScreen(vm, onOpenOverview)
         1 -> TransactionListScreen(
             vm = vm,
             onEditTransaction = onEditTransaction,
             onOpenSettings = onOpenSettings,
             onOpenSearch = onOpenSearch,
-            scrollToTopTick = reenterTick,
+            entryToken = ledgerEntryToken,
+            entryDay = ledgerEntryDay,
         )
-        2 -> StatsScreen(vm = vm, scrollToTopTick = reenterTick)
+        2 -> StatsScreen(vm = vm, scrollToTopTick = reenterTick, onOpenLedger = onOpenLedger)
         3 -> ProfileScreen(
             vm = vm,
             onOpenAccount = onOpenAccount,

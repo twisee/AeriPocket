@@ -58,7 +58,7 @@ import com.controleco.app.ui.theme.onHeroMuted
 import com.controleco.app.update.AppUpdate
 
 /** 开源仓库（与个人页「更多」里的仓库行保持一致） */
-private const val GITHUB_REPO_PATH = "ArrogHie/ControlECO"
+private const val GITHUB_REPO_PATH = "twisee/AeriPocket"
 private const val GITHUB_REPO_URL = "https://github.com/$GITHUB_REPO_PATH"
 
 // 深色 hero 上的前景色：由主题推导（hero 渐变永远偏深，色相跟主题走）
@@ -82,7 +82,7 @@ private val LICENSES = listOf(
 )
 
 /**
- * 设置 → 关于易控钱包：品牌 hero + 隐私承诺 + 版本/构建/仓库 + 独立仓库入口。
+ * 设置 → 关于AeriPocket：品牌 hero + 隐私承诺 + 版本/构建/仓库 + 独立仓库入口。
  *
  * 「检查更新」沿用全局更新流程：AppUpdate 发现新版本后写入 updateAvailable，
  * 由 Activity 级的更新对话框负责下载进度与「安装未知应用」授权闸（installGate），
@@ -103,7 +103,7 @@ fun SettingsAboutScreen(onBack: () -> Unit) {
         Unit
     }
 
-    SettingsPage(micro = "ABOUT", title = "关于易控钱包", onBack = onBack) {
+    SettingsPage(micro = "ABOUT", title = "关于AeriPocket", onBack = onBack) {
         AboutHero()
 
         SettingsSection(title = "隐私与安全", aside = "LOCAL ONLY")
@@ -128,7 +128,7 @@ fun SettingsAboutScreen(onBack: () -> Unit) {
             SettingsDivider()
             SettingsValueRow("构建类型", if (BuildConfig.DEBUG) "debug / 含调试开关" else "release")
             SettingsDivider()
-            SettingsValueRow("开源仓库", "ArrogHie / ControlECO")
+            SettingsValueRow("开源仓库", "twisee / AeriPocket")
             SettingsDivider()
             SettingsRow(
                 title = "检查更新",
@@ -259,7 +259,7 @@ private fun AboutHero() {
             ) {
                 Icon(
                     EcoIcons.Leaf,
-                    contentDescription = "易控钱包",
+                    contentDescription = "AeriPocket",
                     tint = c.onAccent,
                     modifier = Modifier.size(26.dp),
                 )
@@ -267,7 +267,7 @@ private fun AboutHero() {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    "易控钱包",
+                    "AeriPocket",
                     style = EcoType.RowTitle.copy(
                         fontSize = 17.sp,
                         lineHeight = 22.sp,

@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -92,6 +93,7 @@ fun SettingsScreen(
     onOpenDeveloper: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenHelp: () -> Unit,
+    onOpenAccessibility: () -> Unit = onOpenPermissions,
 ) {
     LaunchedEffect(Unit) { AppLog.i("settings", "hub opened") }
 
@@ -113,26 +115,43 @@ fun SettingsScreen(
     val autoEntry by vm.autoEntryEnabled.collectAsStateWithLifecycle()
     val autoUpdate by vm.autoUpdateEnabled.collectAsStateWithLifecycle()
     val captureEnabled by vm.captureEnabled.collectAsStateWithLifecycle()
+    val a11yCapture by vm.a11yCaptureEnabled.collectAsStateWithLifecycle()
     val lastCaptureAt by vm.lastCaptureAt.collectAsStateWithLifecycle()
     val pendingCount by vm.pendingCount.collectAsStateWithLifecycle()
     val rules by vm.merchantRules.collectAsStateWithLifecycle(initialValue = emptyList())
 
     val listenerGranted = remember(resumeTick) { vm.isListenerGranted() }
     val a11yGranted = remember(resumeTick) { vm.isA11yEnabled() }
-    val overlayGranted = remember(resumeTick) { vm.isOverlayGranted() }
-    val smsGranted = remember(resumeTick) { vm.isSmsPermissionGranted() }
     val watchedCount = remember(resumeTick) { CaptureAppCatalog.watched(context).size }
     val appTotal = remember { CaptureAppCatalog.apps.size }
 
-    val running = captureEnabled && (listenerGranted || a11yGranted)
-    val grantedCount = listOf(listenerGranted, a11yGranted, overlayGranted, smsGranted).count { it }
-    val permissionsReady = grantedCount == 4
+    val running = captureEnabled && (listenerGranted || (a11yCapture && a11yGranted))
+    val permissionsReady = com.controleco.app.capture.CapturePermissions.missing(context).isEmpty()
 
     SettingsPage(micro = "PREFERENCES", title = "设置", onBack = onBack) {
         AutomationStatusCard(running = running, lastCaptureAt = lastCaptureAt)
 
         SettingsSection(title = "自动记账", aside = "CAPTURE / 监听")
         SettingsPane {
+            SettingsSwitchRow(
+                title = "无障碍页面记账",
+                modifier = Modifier.testTag("a11yCaptureToggleRow"),
+                subtitle = if (a11yGranted) "系统授权已开启" else "还需在系统中授权页面采集",
+                checked = a11yCapture,
+                onCheckedChange = { enabled ->
+                    vm.setA11yCaptureEnabled(enabled)
+                    if (enabled) vm.setCaptureEnabled(true)
+                },
+            )
+            SettingsRow(
+                title = "无障碍授权与教程",
+                subtitle = "查看页面采集状态和系统开启方法",
+                icon = EcoIcons.Shield,
+                trail = if (a11yGranted) "已授权" else "去开启",
+                showChevron = true,
+                onClick = onOpenAccessibility,
+            )
+            SettingsDivider()
             SettingsSwitchRow(
                 title = "入账提醒",
                 checked = captureNotify,
@@ -248,7 +267,7 @@ fun SettingsScreen(
 
         SettingsSection(title = "关于", aside = "ABOUT / 关于")
         SettingsPane {
-            // 帮助在「关于易控钱包」之上：说明属于使用指南，先于版本信息出现
+            // 帮助在「关于AeriPocket」之上：说明属于使用指南，先于版本信息出现
             SettingsRow(
                 title = "帮助",
                 subtitle = "预算口径 / 自动记账 / 常见问题",
@@ -259,7 +278,7 @@ fun SettingsScreen(
             )
             SettingsDivider()
             SettingsRow(
-                title = "关于易控钱包",
+                title = "关于AeriPocket",
                 icon = EcoIcons.Info,
                 iconTint = MaterialTheme.eco.jade,
                 trail = "v${BuildConfig.VERSION_NAME}",

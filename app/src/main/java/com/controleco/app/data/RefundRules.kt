@@ -14,7 +14,16 @@ internal object RefundRules {
         expense.refundMark != RefundMark.NONE -> "该账单已退款"
         expense.amountCents <= 0 -> "支出金额无效"
         capturedAmount < 0 -> "退款金额无效"
-        capturedAmount > 0 && capturedAmount != expense.amountCents -> "退款金额与支出不符"
+        capturedAmount > expense.amountCents - expense.refundedCents -> "退款金额超过剩余支出"
+        else -> null
+    }
+
+    /** Exported original statuses may already include this refund; linking must not subtract it again. */
+    fun legacyError(expense: TransactionEntity?, refundAmount: Long, alreadyLinked: Long): String? = when {
+        expense == null -> "原支出记录不存在"
+        expense.type != TxType.EXPENSE -> "只能选择支出账单"
+        refundAmount < 0 || expense.amountCents < 0 -> "退款金额无效"
+        refundAmount > expense.amountCents - alreadyLinked -> "累计关联退款超过原支出"
         else -> null
     }
 

@@ -17,7 +17,7 @@ object AccentThemeStore {
     private const val PREFS = "eco_ui"
     private const val KEY = "accent_theme"
 
-    var current: EcoAccent by mutableStateOf(EcoAccent.Tide)
+    var current: EcoAccent by mutableStateOf(EcoAccent.White)
         private set
 
     private var prefs: android.content.SharedPreferences? = null
@@ -26,7 +26,12 @@ object AccentThemeStore {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
-        current = EcoAccent.fromId(p.getString(KEY, EcoAccent.Tide.id))
+        // Apply the user's new neutral default once when upgrading the preview build.
+        // Later theme choices are kept on every subsequent launch.
+        if (p.getInt("personal_palette_revision", 0) < 1) {
+            p.edit().putString(KEY, EcoAccent.White.id).putInt("personal_palette_revision", 1).apply()
+        }
+        current = EcoAccent.fromId(p.getString(KEY, EcoAccent.White.id))
     }
 
     fun set(context: Context, accent: EcoAccent) {

@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ControlECO"
+rootProject.name = "AeriPocket"
 include(":app")

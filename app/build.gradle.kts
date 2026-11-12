@@ -8,14 +8,15 @@ plugins {
 android {
     namespace = "com.controleco.app"
     compileSdk = 35
+    buildToolsVersion = "35.0.0"
 
     defaultConfig {
-        applicationId = "com.controleco.app"
+        applicationId = "com.twisee.wallet.eco"
         minSdk = 26
         targetSdk = 35
         // 每次带修改的构建把第三位 +1；1.0.0 起为正式版本，版本名不再带 -beta 后缀
-        versionCode = 41
-        versionName = "1.0.6"
+        versionCode = 10
+        versionName = "1.0.0"
     }
 
     buildTypes {
@@ -41,6 +42,7 @@ android {
     testOptions {
         // 单元测试中 android.util.Log 等框架方法返回默认值而非抛异常
         unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
     }
 }
 
@@ -68,4 +70,12 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
 
     testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+ tasks.withType<Test>().configureEach {
+    systemProperty("robolectric.dependency.repo.url", "https://maven.aliyun.com/repository/public")
+    providers.gradleProperty("localBill").orNull?.let { systemProperty("wallet.localBill", it) }
 }

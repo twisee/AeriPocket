@@ -40,8 +40,8 @@ class AccentThemeTest {
     // ---------- 1. 主题齐全 ----------
 
     @Test
-    fun `七套主题齐全且 id 唯一`() {
-        assertEquals(7, all.size)
+    fun `八套主题含晴黄且 id 唯一`() {
+        assertEquals(8, all.size)
         assertEquals("主题 id 不能重复", all.size, all.map { it.id }.toSet().size)
         assertEquals("主题名不能重复", all.size, all.map { it.label }.toSet().size)
     }

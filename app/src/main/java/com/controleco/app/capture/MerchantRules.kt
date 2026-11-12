@@ -54,7 +54,9 @@ internal object MerchantRules {
         return if (counterparty.isBlank()) merchantKey(note) else null
     }
 
-    private fun merchantKey(raw: String): String? {
+    fun explicitKeyOf(raw: String): String? = merchantKey(raw, allowGeneric = true)
+
+    private fun merchantKey(raw: String, allowGeneric: Boolean = false): String? {
         val source = Normalizer.normalize(raw, Normalizer.Form.NFKC).trim()
             .replace(merchantLabel, "").replace(paymentPrefix, "")
         if (source.isBlank() || amountText.containsMatchIn(source) || source.contains('\n')) return null
@@ -62,7 +64,7 @@ internal object MerchantRules {
         val key = fullKey.take(20)
         if (key.length < 2) return null
         if (key.all { it.isDigit() }) return null
-        if (key in stopWords) return null
+        if (key in stopWords && !allowGeneric) return null
         return key
     }
 
@@ -111,7 +113,7 @@ internal object MerchantRules {
     /** 命中的规则（键 + 方向）；没命中返回 null */
     fun match(rules: List<MerchantRuleEntity>, type: TxType, counterparty: String, note: String): MerchantRuleEntity? {
         if (rules.isEmpty()) return null
-        val key = keyOf(counterparty, note) ?: return null
+        val key = keyOf(counterparty, note) ?: explicitKeyOf(counterparty) ?: return null
         val sameType = rules.filter { it.type == type }
         // 原键优先；历史带标签/全角的规则可继续使用，冲突时采用最近的明确选择。
         return sameType.filter { it.matchKey == key }.maxByOrNull { it.updatedAt }

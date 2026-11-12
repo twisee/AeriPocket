@@ -252,8 +252,9 @@ fun PeriodStepper(
             size = if (compact) 30.dp else 36.dp,
         )
         Spacer(Modifier.width(if (compact) 4.dp else 6.dp))
-        Text(
-            periodLabel(yearMonth, mode),
+        AnimatedPeriodLabel(
+            month = yearMonth,
+            mode = mode,
             style = if (compact) {
                 MaterialTheme.typography.titleSmall
             } else {

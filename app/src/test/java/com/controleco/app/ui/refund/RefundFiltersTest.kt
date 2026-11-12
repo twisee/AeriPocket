@@ -19,10 +19,10 @@ class RefundFiltersTest {
             categoryId = 1, categoryName = "其他", accountId = 1, accountName = "现金", refundMark = RefundMark.NONE,
         )
 
-    @Test fun `known amount only allows equal unrefunded expenses`() {
+    @Test fun `known amount allows remaining expenses sufficient for a partial refund`() {
         val rows = listOf(row(1), row(2, amount = 1001), row(3).copy(type = TxType.INCOME),
             row(4).copy(refundMark = RefundMark.REFUNDED_EXPENSE))
-        assertEquals(listOf(1L), filterRefundCandidates(rows, capturedAmount = 1000, zone = zone).map { it.id })
+        assertEquals(listOf(1L, 2L), filterRefundCandidates(rows, capturedAmount = 1000, zone = zone).map { it.id })
     }
 
     @Test fun `unknown amount includes old expenses with no 50 row cutoff`() {
@@ -51,9 +51,9 @@ class RefundFiltersTest {
         assertEquals(listOf(2L, 3L), filterRefundCandidates(rows, startDate = start, zone = zone).map { it.id })
     }
 
-    @Test fun `known amount cannot be widened by other filters but still observes dates`() {
+    @Test fun `known refund amount permits partial refund candidates and observes dates`() {
         val rows = listOf(row(1), row(2, amount = 2000), row(3, date = "2026-11-04"))
-        assertEquals(listOf(1L), filterRefundCandidates(rows, capturedAmount = 1000, merchant = "does not match",
+        assertEquals(listOf(1L, 2L), filterRefundCandidates(rows, capturedAmount = 1000, merchant = "does not match",
             minAmount = "20", endDate = LocalDate.parse("2026-11-03"), zone = zone).map { it.id })
     }
 }

@@ -167,7 +167,21 @@ object PageParseSupport {
      * 取"实付金额"：优先级 = 锚点节点内金额 → PAID 上下文 → 独立 ¥ 节点 → ORDER_TOTAL → UNKNOWN。
      * 页面同时出现订单原价与实付时永远取实付（这是"商品原价 vs 实付"误记的根因）。
      */
+    /** Explicit settled amounts outrank nearby order totals. */
+    fun explicitPaidAmount(snapshot: PageSnapshot): String? {
+        val labels = listOf("订单实付", "实际支付", "实际付款", "实付款", "实付金额", "实付", "支付金额", "付款金额")
+        for (label in labels) {
+            val matching = snapshot.lines.filter { it.contains(label) }
+            if (matching.isEmpty() || matching.first().let { it.contains("优惠前") || it.contains("券前") || it.contains("原价") }) continue
+            amountAfterLabel(snapshot, listOf(label))?.let { amount ->
+                if (Money.parseCents(amount)?.let { it > 0 } == true) return amount
+            }
+        }
+        return null
+    }
+
     fun pickPaidAmount(snapshot: PageSnapshot, anchorIndex: Int = -1): String? {
+        explicitPaidAmount(snapshot)?.let { return it }
         if (anchorIndex in snapshot.lines.indices) {
             amountInAnchor(snapshot.lines[anchorIndex])?.let { return it }
         }

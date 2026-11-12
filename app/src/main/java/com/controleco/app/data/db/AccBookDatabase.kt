@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.withTransaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
@@ -17,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CaptureTraceEntity::class,
         MerchantRuleEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 abstract class AccBookDatabase : RoomDatabase() {
@@ -281,6 +282,14 @@ abstract class AccBookDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN refundedCents INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN refundExpenseId INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE transactions SET refundedCents = amountCents WHERE refundMark = 'REFUNDED_EXPENSE'")
+            }
+        }
+
         @Volatile
         private var instance: AccBookDatabase? = null
 
@@ -294,7 +303,7 @@ abstract class AccBookDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                         MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
-                        MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
+                        MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15,
                     )
                     .build().also { instance = it }
             }
@@ -307,12 +316,12 @@ object DefaultData {
     val defaultAccounts = listOf("现金", "微信零钱", "支付宝", "银行卡")
 
     val defaultExpenseCategories =
-        listOf("餐饮", "交通", "购物", "日用", "居住", "娱乐", "医疗", "其他")
+        listOf("餐饮", "购物", "娱乐", "日常")
 
     /** 收入分类：「退款」固定排在「其他」之前（退款是常规收入项，其他是兜底项） */
     val defaultIncomeCategories = listOf("工资", "理财", "红包", RefundCategory.NAME, "其他")
 
-    suspend fun seedIfNeeded(db: AccBookDatabase) {
+    suspend fun seedIfNeeded(db: AccBookDatabase) = db.withTransaction {
         if (db.accountDao().countAll() == 0) {
             db.accountDao().insertAll(defaultAccounts.map { AccountEntity(name = it) })
         }

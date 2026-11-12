@@ -66,7 +66,7 @@ fun ColdStartSplash(onFinished: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Image(
-            painter = painterResource(R.drawable.ic_launcher_art),
+            painter = painterResource(R.drawable.personal_launcher),
             contentDescription = null,
             modifier = Modifier
                 .size(104.dp)

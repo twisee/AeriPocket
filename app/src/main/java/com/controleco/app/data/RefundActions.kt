@@ -6,7 +6,7 @@ import com.controleco.app.capture.CaptureResolution
 import com.controleco.app.capture.LogicalTransactions
 import com.controleco.app.data.db.*
 
-/** 不保存退款关联。每次操作在同一个数据库事务内完成，重复点击不会多记收入。 */
+/** 保存精确退款关联。操作在原项目的 Room 事务内完成，重复点击不会重复退款。 */
 internal class RefundActions(private val db: AccBookDatabase) {
     private val transactions = db.transactionDao()
 
@@ -20,7 +20,7 @@ internal class RefundActions(private val db: AccBookDatabase) {
         transactions.insert(
             TransactionEntity(
                 type = TxType.INCOME,
-                amountCents = expense.amountCents,
+                amountCents = capture?.amountCents?.takeIf { it > 0 } ?: (expense.amountCents - expense.refundedCents),
                 categoryId = refundCategoryId(),
                 accountId = expense.accountId,
                 // 保证生成的收入在原支出之后；普通捕获仍保留退款业务时间。
@@ -31,10 +31,14 @@ internal class RefundActions(private val db: AccBookDatabase) {
                 externalId = capture?.let { "NTF:${it.dedupKey}" },
                 refundMark = RefundMark.REFUND_INCOME,
                 refundPending = false,
+                refundExpenseId = expense.id,
                 flowId = capture?.flowId.orEmpty(),
             ),
         )
-        transactions.markExpenseRefunded(expense.id)
+        val amount = capture?.amountCents?.takeIf { it > 0 } ?: (expense.amountCents - expense.refundedCents)
+        val total = expense.refundedCents + amount
+        transactions.update(expense.copy(refundedCents = total,
+            refundMark = if (total >= expense.amountCents) RefundMark.REFUNDED_EXPENSE else RefundMark.NONE))
     }
 
     suspend fun refundExpense(expenseId: Long) = db.withTransaction {
@@ -70,16 +74,19 @@ internal class RefundActions(private val db: AccBookDatabase) {
             "该退款已处理"
         }
         val expense = transactions.getById(expenseId)
-        RefundRules.expenseError(expense, refund.amountCents)?.let { error(it) }
-        transactions.markExpenseRefunded(expenseId)
-        transactions.clearRefundPending(refundId)
+        val alreadyLinked = transactions.refundsFor(expenseId).sumOf { it.amountCents }
+        RefundRules.legacyError(expense, refund.amountCents, alreadyLinked)?.let { error(it) }
+        val original = requireNotNull(expense)
+        val total = maxOf(original.refundedCents, alreadyLinked + refund.amountCents)
+        transactions.update(original.copy(refundedCents = total,
+            refundMark = if (total >= original.amountCents) RefundMark.REFUNDED_EXPENSE else RefundMark.NONE))
+        transactions.update(refund.copy(refundExpenseId = expenseId, refundPending = false))
     }
 
     suspend fun undoRefund(expenseId: Long) = db.withTransaction {
         val expense = transactions.getById(expenseId) ?: error("原支出记录不存在")
-        check(expense.type == TxType.EXPENSE && expense.refundMark == RefundMark.REFUNDED_EXPENSE) { "该账单未退款" }
-        // 按业务时间升序取第一笔同额「退款」收入，不按商户/账户配对，也不引入关联字段。
-        transactions.firstRefundIncomeAfter(expense.amountCents, expense.timestamp)?.let { refund ->
+        check(expense.type == TxType.EXPENSE && expense.refundedCents > 0) { "该账单未退款" }
+        transactions.refundsFor(expenseId).forEach { refund ->
             refund.externalId?.takeIf { it.startsWith("NTF:") }?.removePrefix("NTF:")?.let { key ->
                 db.pendingDao().findByDedupKey(key)?.let { LogicalTransactions.markResolved(it, CaptureResolution.REJECTED) }
                 db.pendingDao().deleteByDedupKey(key)

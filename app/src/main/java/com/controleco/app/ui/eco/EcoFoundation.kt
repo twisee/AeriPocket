@@ -128,89 +128,16 @@ fun EcoBackdrop(modifier: Modifier = Modifier) {
             ),
         )
 
-        // 原型的 geo 层：等高线 / 细规线 / 点阵 / 十字 / 菱形，入场 0.6s 淡入
         val a = reveal.value
-        if (a <= 0.001f) return@Canvas
-        val line = if (c.isDark) 0.38f else 0.58f
-        val thin = 1.dp.toPx()
-        val inkLine = c.blue.copy(alpha = line * 0.55f * a)
-        val ruleLine = c.rule.copy(alpha = line * a)
-        val stroke = Stroke(width = thin, cap = StrokeCap.Round)
-
-        // 右上大圆与内圈
-        drawCircle(
-            color = ruleLine,
-            radius = w * 0.52f,
-            center = Offset(w * 1.10f, h * 0.10f),
-            style = stroke,
+        drawFloralBranch(
+            c.blueDeep.copy(alpha = (if (c.isDark) .34f else .32f) * a),
+            origin = Offset(w - 174.dp.toPx(), 45.dp.toPx()),
+            width = 156.dp.toPx(), height = 57.dp.toPx(),
         )
-        drawCircle(
-            color = ruleLine.copy(alpha = ruleLine.alpha * 0.7f),
-            radius = w * 0.37f,
-            center = Offset(w * 1.02f, h * 0.22f),
-            style = stroke,
-        )
-        // 顶部两道等高线，越向左侧越淡
-        val contour1 = Path().apply {
-            moveTo(-w * 0.12f, h * 0.115f)
-            cubicTo(w * 0.18f, h * 0.055f, w * 0.48f, h * 0.13f, w * 1.12f, h * 0.255f)
-        }
-        drawPath(contour1, inkLine, style = stroke)
-        val contour2 = Path().apply {
-            moveTo(-w * 0.10f, h * 0.165f)
-            cubicTo(w * 0.24f, h * 0.105f, w * 0.54f, h * 0.18f, w * 1.10f, h * 0.325f)
-        }
-        drawPath(contour2, inkLine.copy(alpha = inkLine.alpha * 0.62f), style = stroke)
-        val contour3 = Path().apply {
-            moveTo(-w * 0.06f, h * 0.70f)
-            cubicTo(w * 0.20f, h * 0.60f, w * 0.46f, h * 0.79f, w * 0.92f, h * 0.70f)
-        }
-        drawPath(contour3, inkLine.copy(alpha = inkLine.alpha * 0.42f), style = stroke)
-
-        // 左下点阵（向中心衰减）
-        val cols = 7
-        val rows = 6
-        val gap = 19.dp.toPx()
-        val ox = -w * 0.055f
-        val oy = h * 0.755f
-        for (row in 0 until rows) {
-            for (col in 0 until cols) {
-                val fade = (1f - (row / rows.toFloat()) * 0.65f) * (1f - (col / cols.toFloat()) * 0.35f)
-                drawCircle(
-                    color = c.blue.copy(alpha = 0.24f * a * fade),
-                    radius = 1.15.dp.toPx(),
-                    center = Offset(ox + col * gap, oy + row * gap),
-                )
-            }
-        }
-
-        // 十字 / 菱形 / 小圆点：装饰元素用「主色 + 次要色」，不占语义色
-        // （原来这里用 amber，导致每页背景都有固定的金色点缀）
-        fun cross(cx: Float, cy: Float, r: Float, color: Color) {
-            drawLine(color, Offset(cx - r, cy), Offset(cx + r, cy), thin, StrokeCap.Round)
-            drawLine(color, Offset(cx, cy - r), Offset(cx, cy + r), thin, StrokeCap.Round)
-        }
-        cross(w * 0.075f, h * 0.635f, 7.dp.toPx(), c.second.copy(alpha = 0.35f * a))
-        cross(w * 0.80f, h * 0.405f, 8.dp.toPx(), c.blue.copy(alpha = 0.25f * a))
-        val diamond = Path().apply {
-            moveTo(w * 0.925f, h * 0.455f - 9.dp.toPx())
-            lineTo(w * 0.925f + 13.dp.toPx(), h * 0.455f)
-            lineTo(w * 0.925f, h * 0.455f + 9.dp.toPx())
-            lineTo(w * 0.925f - 13.dp.toPx(), h * 0.455f)
-            close()
-        }
-        drawPath(diamond, c.rule.copy(alpha = 0.35f * a), style = stroke)
-        drawCircle(c.blue.copy(alpha = 0.45f * a), radius = 2.6.dp.toPx(), center = Offset(w * 0.155f, h * 0.225f))
-        drawCircle(c.second.copy(alpha = 0.30f * a), radius = 1.8.dp.toPx(), center = Offset(w * 0.86f, h * 0.29f))
-
-        // 斜规线：从左到右极淡消失
-        drawLine(
-            brush = Brush.horizontalGradient(
-                listOf(Color.Transparent, c.blue.copy(alpha = 0.11f * a), Color.Transparent),
-            ),
-            start = Offset(w * 0.02f, h * 0.84f),
-            end = Offset(w * 0.92f, h * 0.75f),
-            strokeWidth = thin,
+        drawFloralBranch(
+            c.blueDeep.copy(alpha = .10f * a),
+            origin = Offset(-25.dp.toPx(), h * .79f),
+            width = 130.dp.toPx(), height = 45.dp.toPx(),
         )
     }
 }
@@ -554,7 +481,12 @@ fun EcoSectionHead(
         Text(title, style = EcoType.SectionTitle, color = c.ink)
         // 原型：标题和右侧 aside 之间有一条极细的延长线
         Spacer(Modifier.width(12.dp))
-        Box(Modifier.weight(1f).height(1.dp).background(c.rule))
+        Canvas(Modifier.weight(1f).height(28.dp)) {
+            val branchWidth = minOf(size.width, 110.dp.toPx())
+            drawLine(c.rule, Offset(0f, size.height * .65f), Offset((size.width - branchWidth).coerceAtLeast(0f), size.height * .65f), 1.dp.toPx())
+            drawFloralBranch(c.blueDeep.copy(alpha = .32f),
+                origin = Offset(size.width - branchWidth, -3.dp.toPx()), width = branchWidth, height = 35.dp.toPx())
+        }
         Spacer(Modifier.width(12.dp))
         if (aside != null) Text(aside, style = EcoType.SectionAside, color = c.quiet)
         trailing?.invoke()

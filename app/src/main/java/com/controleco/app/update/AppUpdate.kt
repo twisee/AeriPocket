@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
  */
 object AppUpdate {
 
-    private const val REPO = "ArrogHie/ControlECO"
+    private const val REPO = "twisee/AeriPocket"
 
     /**
      * 用 releases 列表接口而不是 releases/latest：latest 不返回预发布（prerelease），
@@ -77,7 +77,7 @@ object AppUpdate {
     )
 
     fun isAutoUpdateEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_AUTO_UPDATE_ENABLED, true)
+        BuildConfig.APPLICATION_ID == "com.controleco.app" && prefs(context).getBoolean(KEY_AUTO_UPDATE_ENABLED, true)
 
     fun setAutoUpdateEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_AUTO_UPDATE_ENABLED, enabled).apply()
@@ -123,6 +123,10 @@ object AppUpdate {
      * 其余结果经 onResult 在主线程回调（无更新/失败，供页面 Toast 提示）。
      */
     fun checkNow(context: Context, onResult: (String?) -> Unit) {
+        if (BuildConfig.APPLICATION_ID != "com.controleco.app") {
+            onResult("请前往 AeriPocket 的 GitHub 发布页下载更新")
+            return
+        }
         val app = context.applicationContext
         prefs(app).edit().putLong(KEY_LAST_CHECK_AT, System.currentTimeMillis()).apply()
         scope.launch {
@@ -206,8 +210,8 @@ object AppUpdate {
     ): File {
         val dir = File(context.getExternalFilesDir(null) ?: context.filesDir, "update").apply { mkdirs() }
         // 只保留当前这次要装的包：清掉旧版本与残片
-        dir.listFiles()?.forEach { if (it.name != "ControlECO-${release.tagName}.apk") it.delete() }
-        val target = File(dir, "ControlECO-${release.tagName}.apk")
+        dir.listFiles()?.forEach { if (it.name != "AeriPocket-${release.tagName}.apk") it.delete() }
+        val target = File(dir, "AeriPocket-${release.tagName}.apk")
         if (target.exists() && target.length() > MIN_APK_BYTES) {
             AppLog.i("Update", "reuse downloaded ${target.name}")
             return target
@@ -268,7 +272,7 @@ object AppUpdate {
             connectTimeout = PROBE_TIMEOUT_MS
             readTimeout = PROBE_TIMEOUT_MS
             setRequestProperty("Range", "bytes=0-${PROBE_BYTES - 1}")
-            setRequestProperty("User-Agent", "ControlECO-App")
+            setRequestProperty("User-Agent", "AeriPocket-App")
         }
         try {
             val start = System.nanoTime()
@@ -293,7 +297,7 @@ object AppUpdate {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = TIMEOUT_MS
             readTimeout = 30_000
-            setRequestProperty("User-Agent", "ControlECO-App")
+            setRequestProperty("User-Agent", "AeriPocket-App")
         }
         val code = conn.responseCode
         if (code !in 200..299) throw IllegalStateException("HTTP $code")
@@ -341,7 +345,7 @@ object AppUpdate {
             connectTimeout = TIMEOUT_MS
             readTimeout = TIMEOUT_MS
             setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "ControlECO-App")
+            setRequestProperty("User-Agent", "AeriPocket-App")
         }
         val code = conn.responseCode
         val body = (if (code in 200..299) conn.inputStream else conn.errorStream)

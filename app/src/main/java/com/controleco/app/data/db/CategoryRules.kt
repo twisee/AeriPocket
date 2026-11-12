@@ -15,7 +15,7 @@ object CategoryRules {
     /** 兜底分类名（支出、收入各一个） */
     const val FALLBACK_NAME = "其他"
 
-    fun isFallbackName(name: String): Boolean = name.trim() == FALLBACK_NAME
+    fun isFallbackName(name: String): Boolean = name.trim() == FALLBACK_NAME || name.trim() == "日常"
 
     /** 收入「退款」分类（退款收入入账的固定去向） */
     fun isRefundIncome(type: TxType, name: String): Boolean =
@@ -32,8 +32,8 @@ object CategoryRules {
     fun editError(current: CategoryEntity?, newName: String, newType: TxType): String? {
         if (current == null) return null
         val name = newName.trim()
-        if (isFallbackName(current.name) && (name != FALLBACK_NAME || newType != current.type)) {
-            return "「$FALLBACK_NAME」不能改名或修改类型"
+        if (isFallbackName(current.name) && (name != current.name.trim() || newType != current.type)) {
+            return "「${current.name.trim()}」不能改名或修改类型"
         }
         if (isRefundIncome(current.type, current.name) &&
             (name != current.name.trim() || newType != current.type)
@@ -45,7 +45,7 @@ object CategoryRules {
 
     /** 删除校验：返回错误文案，`null` = 允许 */
     fun deleteError(category: CategoryEntity): String? = when {
-        isFallbackName(category.name) -> "「$FALLBACK_NAME」不能删除"
+        isFallbackName(category.name) -> "「${category.name.trim()}」不能删除"
         isRefundIncome(category.type, category.name) -> "「${RefundCategory.NAME}」不能删除"
         else -> null
     }

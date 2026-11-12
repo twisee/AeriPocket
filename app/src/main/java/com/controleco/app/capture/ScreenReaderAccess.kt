@@ -46,7 +46,7 @@ object ScreenReaderAccess {
     internal fun isScreenReaderComponent(component: String): Boolean {
         val lower = component.trim().lowercase()
         if (lower.isEmpty()) return false
-        if (lower.startsWith("com.controleco.app/")) return false
+        if (lower.startsWith("com.controleco.app/") || lower.startsWith("com.twisee.wallet.eco/")) return false
         return lower.contains("selecttospeak") || lower.contains("talkback")
     }
 }

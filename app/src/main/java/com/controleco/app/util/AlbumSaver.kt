@@ -12,7 +12,7 @@ import androidx.core.content.ContextCompat
 import java.io.File
 
 /**
- * 内置图片资源 → 系统相册（`Pictures/易控钱包`）。
+ * 内置图片资源 → 系统相册（`Pictures/AeriPocket`）。
  *
  * 写入的是**原始资源字节**，不重新编码：收款码是点阵图，二次 JPEG 压缩会糊掉码点，
  * 扫码成功率下降；顺带保住原图的 PNG/JPEG 格式。
@@ -24,9 +24,9 @@ import java.io.File
  */
 object AlbumSaver {
     /** 相册里的子目录名，同时也是系统相册里显示的相册名 */
-    const val ALBUM_NAME = "易控钱包"
+    const val ALBUM_NAME = "AeriPocket"
 
-    /** MediaStore 相对路径：`Pictures/易控钱包`（MediaStore 里存的值带结尾斜杠） */
+    /** MediaStore 相对路径：`Pictures/AeriPocket`（MediaStore 里存的值带结尾斜杠） */
     val albumRelativePath: String get() = "${Environment.DIRECTORY_PICTURES}/$ALBUM_NAME"
 
     /** Android 8 / 9 才需要写外部存储的运行时权限；10 起走 MediaStore，不需要 */

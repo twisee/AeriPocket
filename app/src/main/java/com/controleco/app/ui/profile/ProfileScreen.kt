@@ -115,7 +115,7 @@ import java.time.LocalDate
 import kotlin.math.roundToInt
 
 /** 开源仓库（个人页「更多」里的一行，点按用系统浏览器打开） */
-private const val GITHUB_REPO_PATH = "ArrogHie/ControlECO"
+private const val GITHUB_REPO_PATH = "twisee/AeriPocket"
 private const val GITHUB_REPO_URL = "https://github.com/$GITHUB_REPO_PATH"
 
 // ---- 版式常量：按原型最终级联值（hero 197 / duo 161 / mid 150 / bottom 66）----
@@ -367,10 +367,7 @@ fun ProfileScreen(
 
 // ---------- 1. 预算 hero ----------
 
-/**
- * 本月预算 hero：非对称圆角 12/33/12/33、197 高，用强调色 heroA/B/C 渐变 + 投影。
- * 四行内容：眉毛 + 货币/账户动作、48 号金额（可点开预算卡）、6dp 进度轨、已花/百分比/剩余。
- */
+/** Approved floral budget card; the existing settings callbacks and budget calculation are retained. */
 @Composable
 private fun BudgetHero(
     budgetCents: Long,
@@ -381,174 +378,10 @@ private fun BudgetHero(
     onOpenAccount: () -> Unit,
     onManageBudget: () -> Unit,
 ) {
-    val c = MaterialTheme.eco
     val ratio = (snapshot?.spentRatio ?: if (budgetCents > 0) spentCents.toFloat() / budgetCents else 0f)
         .coerceIn(0f, 1f)
-    val pct = (ratio * 100f).roundToInt()
-    val remaining = budgetCents - spentCents
-    // 原型 hero 金额固定两位小数（¥3,000.00），未设置时显示短字样
-    val amountText = if (budgetCents > 0) Money.formatYuanGroupedFixed(budgetCents) else "未设置"
-
-    // 本月预算：圆角方形（不再是 12/33 的非对称圆角）
-    val heroShape = RoundedCornerShape(28.dp)
-    EcoHeroCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(HERO_HEIGHT)
-            // hero 的厚度：同形状底盘下移 4dp
-            .cardPlate(
-                heroShape,
-                c.heroPlate.copy(alpha = 0.55f),
-                offsetX = 2.dp, offsetY = 4.2.dp,
-            ),
-        shape = heroShape,
-    ) {
-        Column(Modifier.fillMaxSize().padding(17.dp)) {
-            // 眉毛 + 右侧两个动作
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "本月预算",
-                    style = EcoType.Micro.copy(
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight(740),
-                        letterSpacing = 1.58.sp,
-                    ),
-                    color = HERO_MINT,
-                    maxLines = 1,
-                )
-                Spacer(Modifier.weight(1f))
-                Box(
-                    Modifier
-                        .height(27.dp)
-                        .widthIn(min = 30.dp)
-                        .clip(RoundedCornerShape(15.dp))
-                        .background(Color.White.copy(alpha = 0.09f))
-                        .border(1.dp, c.onHeroBorder, RoundedCornerShape(15.dp))
-                        .clickable(onClick = onCurrency)
-                        .padding(horizontal = 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        currency,
-                        style = EcoType.Chip.copy(fontSize = 12.sp, fontWeight = FontWeight(760)),
-                        color = HERO_BTN_INK,
-                        maxLines = 1,
-                    )
-                }
-                Spacer(Modifier.width(9.dp))
-                Row(
-                    Modifier
-                        .width(77.dp)
-                        .height(32.dp)
-                        .clip(RoundedCornerShape(11.dp, 16.dp, 11.dp, 16.dp))
-                        .background(c.onHeroBorder.copy(alpha = 0.40f))
-                        .clickable(onClick = onOpenAccount),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        EcoIcons.Wallet,
-                        contentDescription = null,
-                        tint = HERO_INK,
-                        modifier = Modifier.size(15.dp),
-                    )
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        "账户",
-                        style = EcoType.Chip.copy(fontSize = 10.5.sp, fontWeight = FontWeight(760)),
-                        color = HERO_INK,
-                        maxLines = 1,
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            // 金额（点金额或右侧铅笔都能改预算）
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (budgetCents > 0) {
-                    EcoCountUpMoney(
-                        cents = budgetCents,
-                        style = EcoType.HeroAmount,
-                        color = c.onHero,
-                        modifier = Modifier.weight(1f).clickable(onClick = onManageBudget),
-                        textAlign = TextAlign.Start,
-                        minSize = 21.sp,
-                    )
-                } else {
-                    Text(
-                        amountText,
-                        style = EcoType.HeroAmount,
-                        color = c.onHero,
-                        modifier = Modifier.weight(1f).clickable(onClick = onManageBudget),
-                        maxLines = 1,
-                    )
-                }
-                Spacer(Modifier.width(6.dp))
-                Box(
-                    Modifier
-                        .size(26.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.10f))
-                        .clickable(onClick = onManageBudget),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        EcoIcons.Edit,
-                        contentDescription = "设置本月预算",
-                        tint = HERO_MINT.copy(alpha = 0.9f),
-                        modifier = Modifier.size(13.dp),
-                    )
-                }
-            }
-
-            Spacer(Modifier.weight(1f))
-
-            // 进度轨
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.18f)),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(ratio)
-                        .fillMaxHeight()
-                        .clip(CircleShape)
-                        .background(
-                            Brush.horizontalGradient(c.heroProgress),
-                        ),
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-
-            // 元信息：已花 / 百分比 / 剩余
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "已花 ${Money.formatYuanGrouped(spentCents)}",
-                    style = EcoType.RowTrail,
-                    color = Color.White.copy(alpha = 0.84f),
-                    maxLines = 1,
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "$pct%",
-                    style = EcoType.RowTrail.copy(fontSize = 11.sp, fontWeight = FontWeight(760)),
-                    color = HERO_MINT_SOFT,
-                    maxLines = 1,
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "剩余 ${Money.formatYuanGrouped(remaining)}",
-                    style = EcoType.RowTrail,
-                    color = Color.White.copy(alpha = 0.84f),
-                    maxLines = 1,
-                )
-            }
-        }
-    }
+    com.controleco.app.ui.common.AliceBudgetCard(budgetCents, spentCents, ratio, currency,
+        onCurrency, onOpenAccount, onManageBudget)
 }
 
 // ---------- 2. 双列：分段 + 日预算瓦片 / 待确认椭圆 ----------
@@ -704,7 +537,7 @@ private fun DailyTile(
                     fontWeight = FontWeight(800),
                     letterSpacing = 0.sp
                 ),
-                color = c.blue,
+                color = c.blueDeep,
                 textAlign = TextAlign.Center,
                 maxLines = 1
             )
@@ -1505,7 +1338,7 @@ private fun MoreSection(
                 )
                 EcoRowDivider()
                 EcoRow(
-                    title = "关于易控钱包",
+                    title = "关于AeriPocket",
                     icon = EcoIcons.Info,
                     onClick = onAbout,
                     showChevron = true,
@@ -1556,7 +1389,7 @@ private fun MoreSheet(
             )
             EcoRowDivider()
             EcoRow(
-                title = "关于易控钱包",
+                title = "关于AeriPocket",
                 icon = EcoIcons.Info,
                 onClick = onAbout,
                 showChevron = true,
@@ -1763,10 +1596,10 @@ private fun AboutDialog(onOpenRepo: () -> Unit, onDismiss: () -> Unit) {
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("易控钱包", style = EcoType.ModalTitle, color = c.ink, maxLines = 1)
+                    Text("AeriPocket", style = EcoType.ModalTitle, color = c.ink, maxLines = 1)
                     Spacer(Modifier.height(1.dp))
                     Text(
-                        "本地记账 / 账单导入 / 自动捕获",
+                        "基于 ControlECO · GPL-3.0",
                         style = EcoType.PageNote,
                         color = c.muted,
                         maxLines = 1,

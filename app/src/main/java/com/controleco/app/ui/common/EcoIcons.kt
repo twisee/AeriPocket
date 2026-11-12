@@ -15,6 +15,17 @@ import androidx.compose.ui.unit.dp
  * 此文件只承担导航、操作、状态等界面图标。路径由原型 ICONS 对象生成。
  */
 object EcoIcons {
+    /** Personal shell: a flower and a slim ledger, keeping the upstream stroke system. */
+    val PersonalFlower: ImageVector by lazy {
+        ecoIcon("personal-flower", listOf(
+            "M12 9C6 3 7 1 12 4C17 1 18 3 12 9Z",
+            "M12 9C20 4 23 8 17 12C23 17 19 20 12 14C5 20 1 17 7 12C1 8 4 4 12 9Z",
+            "M10 11a2 2 0 1 0 4 0a2 2 0 1 0-4 0M12 15v7m0-3c3-3 6-2 6-2"))
+    }
+    val PersonalLedger: ImageVector by lazy {
+        ecoIcon("personal-ledger", listOf("M5 3h13a2 2 0 0 1 2 2v15H6a2 2 0 0 1-2-2V5a2 2 0 0 1 1-2Z", "M8 3v17M11 8h6M11 12h6M11 16h3"))
+    }
+
     /** home */
     val Home: ImageVector by lazy {
         ecoIcon(

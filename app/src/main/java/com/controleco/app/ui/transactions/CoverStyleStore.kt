@@ -6,7 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
 /**
- * 结余封面底色：night（默认夜色）/ mist（薄雾）/ clay（陶土）。
+ * 结余封面：night（兼容旧存储值，现为默认爱丽丝花卉）/ mist（薄雾）/ clay（陶土）。
  * 仅保存在本机；有自定义图片时图片优先，底色只在移除图片后生效。
  */
 object CoverStyleStore {

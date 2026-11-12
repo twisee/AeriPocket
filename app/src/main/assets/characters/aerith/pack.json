@@ -1,0 +1,37 @@
+{
+  "name": "爱丽丝",
+  "frameLayout": "two equal columns: eyes open, eyes closed",
+  "poses": [
+    {
+      "threshold": 0,
+      "atlas": "pose_0.png",
+      "response": "新的一月，慢慢安排就好。",
+      "minBudgetPercent": 0
+    },
+    {
+      "threshold": 25,
+      "atlas": "pose_25.png",
+      "response": "好好吃饭，也记得照顾预算。",
+      "minBudgetPercent": 20
+    },
+    {
+      "threshold": 50,
+      "atlas": "pose_50_upper_body.png",
+      "response": "停下来看看账本，再安排接下来的花销。",
+      "fitVisibleBounds": true,
+      "minBudgetPercent": 40
+    },
+    {
+      "threshold": 75,
+      "atlas": "pose_75.png",
+      "response": "嗯……这笔真的需要现在买吗？",
+      "minBudgetPercent": 60
+    },
+    {
+      "threshold": 100,
+      "atlas": "pose_100.png",
+      "response": "先歇一下，一起看看剩下的预算吧。",
+      "minBudgetPercent": 80
+    }
+  ]
+}

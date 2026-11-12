@@ -49,6 +49,7 @@ import com.controleco.app.ui.common.relativeLuminance
 import com.controleco.app.ui.common.scrimAlphaFor
 import com.controleco.app.ui.eco.EcoAutoMoney
 import com.controleco.app.ui.common.EcoIcons
+import com.controleco.app.ui.common.AliceBalanceCard
 import com.controleco.app.ui.theme.EcoType
 import com.controleco.app.ui.theme.eco
 import com.controleco.app.ui.theme.heroGradient
@@ -86,6 +87,11 @@ fun BalanceCard(
     val c = MaterialTheme.eco
     val drawable = remember(image?.full, image?.preview) { image?.asImage() }
     val customImage = image != null || !imagePath.isNullOrBlank()
+    // The existing default preset now uses the approved floral cover. Custom images and other presets keep priority.
+    if (!customImage && style != CoverStyleStore.MIST && style != CoverStyleStore.CLAY) {
+        AliceBalanceCard(mode, balanceCents, incomeCents, expenseCents, onModeChange, onOpenImageSettings, modifier, showEdit)
+        return
+    }
     val placeholder = if (drawable == null && customImage) placeholderColor?.let { Color(it) } else null
     val effectiveLuminance = image?.luminance ?: placeholderLuminance ?: 0.9f
     val mist = !customImage && style == CoverStyleStore.MIST

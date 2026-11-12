@@ -103,6 +103,7 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+    var rememberMerchantCategory by remember { mutableStateOf(true) }
 
     // 编辑模式：加载完成后回填表单（仅一次）
     LaunchedEffect(existing) {
@@ -165,6 +166,7 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
                     txId, type, value, categoryId!!, accountId!!, ts, note.trim(), counterparty.trim(),
                     budgetExcluded = budgetExcluded,
                     aaShares = shares ?: 0,
+                    rememberMerchantCategory = rememberMerchantCategory,
                     onResult = { message ->
                         saving = false
                         if (message == null) {
@@ -296,6 +298,15 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
                 }
             }
 
+            if (counterparty.isNotBlank() && existing?.refundMark != RefundMark.REFUND_INCOME) {
+                com.controleco.app.ui.common.SettingsSwitchRow(
+                    title = "设为商户默认分类",
+                    subtitle = "同时更新已有账单，之后自动沿用",
+                    checked = rememberMerchantCategory,
+                    onCheckedChange = { rememberMerchantCategory = it },
+                )
+            }
+
             Spacer(Modifier.height(15.dp))
             TxSectionLabel("账户与日期")
             Spacer(Modifier.height(8.dp))
@@ -382,7 +393,7 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
 
             if (existing?.type == TxType.EXPENSE && type == TxType.EXPENSE) {
                 Spacer(Modifier.height(18.dp))
-                val refunded = existing?.refundMark == RefundMark.REFUNDED_EXPENSE
+                val refunded = (existing?.refundedCents ?: 0) > 0
                 EcoGhostButton(
                     text = if (refunded) "撤销退款" else "退款该账单",
                     enabled = unchanged && !saving,

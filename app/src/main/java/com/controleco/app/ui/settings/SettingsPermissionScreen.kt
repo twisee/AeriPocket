@@ -71,6 +71,7 @@ fun SettingsPermissionScreen(
     onOpenNotificationAccess: () -> Unit,
     onOpenAccessibilitySettings: () -> Unit,
     onOpenOverlayPermission: () -> Unit,
+    accessibilityOnly: Boolean = false,
 ) {
     var resumeTick by remember { mutableIntStateOf(0) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -82,13 +83,17 @@ fun SettingsPermissionScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    SettingsPage(micro = "PERMISSIONS", title = "权限", onBack = onBack) {
-        PermissionSummary(vm, resumeTick)
-        NotificationSection(vm, resumeTick, onOpenNotificationAccess)
+    SettingsPage(micro = if (accessibilityOnly) "ACCESSIBILITY" else "PERMISSIONS", title = if (accessibilityOnly) "无障碍页面采集" else "权限", onBack = onBack) {
+        if (!accessibilityOnly) {
+            PermissionSummary(vm, resumeTick)
+            NotificationSection(vm, resumeTick, onOpenNotificationAccess)
+        }
         A11ySection(vm, resumeTick, onOpenAccessibilitySettings)
         ScreenReaderSection(vm, resumeTick, onOpenAccessibilitySettings)
-        OverlaySection(vm, resumeTick, onOpenOverlayPermission)
-        BankSection(vm, resumeTick)
+        if (!accessibilityOnly) {
+            OverlaySection(vm, resumeTick, onOpenOverlayPermission)
+            BankSection(vm, resumeTick)
+        }
     }
 }
 
@@ -104,10 +109,10 @@ private fun PermissionSummary(vm: LedgerViewModel, resumeTick: Int) {
     // 「随选朗读」不计入核心通道：页面采集改用与系统读屏一致的组件身份后，
     // 只授权本应用就能读到微信节点（真机实测见 docs/无障碍页面捕获兼容性.md），
     // 它只作为"页面读不到"时的备用手段，列在下方。
-    val coreMissing = listOf(listener, a11y, overlay).count { !it }
+    val coreMissing = com.controleco.app.capture.CapturePermissions.missing(androidx.compose.ui.platform.LocalContext.current).size
     val title = when {
-        coreMissing == 0 -> "核心通道已就绪"
-        coreMissing <= 2 -> "还需开启 $coreMissing 项核心权限"
+        coreMissing == 0 -> "已启用功能的权限已就绪"
+        coreMissing <= 2 -> "已启用功能还缺 $coreMissing 项权限"
         else -> "自动记账尚未就绪"
     }
     EcoPane(
@@ -226,8 +231,8 @@ private fun NotificationSection(vm: LedgerViewModel, resumeTick: Int, onOpenNoti
             "通知监听开启教程",
             listOf(
                 "安卓 13+ 侧载应用需先解锁：应用信息 → 右上角「⋯」→ 允许受限制的设置" +
-                    "（否则通知使用权列表里找不到或开不了 易控钱包）。",
-                "系统设置中搜索「通知使用权 / 通知访问」→ 找到 易控钱包 → 打开开关。",
+                    "（否则通知使用权列表里找不到或开不了 AeriPocket）。",
+                "系统设置中搜索「通知使用权 / 通知访问」→ 找到 AeriPocket → 打开开关。",
                 "回到本页状态应显示「已连接」；付款后可在捕获日志看到通知快照。",
                 "若长时间无记录：重启手机 → 打开应用再看状态（部分机型需重新开关一次）。",
             ),
@@ -297,9 +302,9 @@ private fun A11ySection(vm: LedgerViewModel, resumeTick: Int, onOpenAccessibilit
             "无障碍开启教程",
             listOf(
                 "安卓 13+ 侧载应用需先解锁：应用信息 → 右上角「⋯」→ 允许受限制的设置" +
-                    "（否则无障碍列表里找不到或开不了 易控钱包）。",
+                    "（否则无障碍列表里找不到或开不了 AeriPocket）。",
                 a11yPathFor(Brand.current()),
-                "打开「易控钱包 支付页面采集」开关；系统弹 10 秒倒计时确认属正常（小米十秒盾）。",
+                "打开「AeriPocket 支付页面采集」开关；系统弹 10 秒倒计时确认属正常（小米十秒盾）。",
                 "回到本页状态应显示「已连接」；付款后在捕获日志的「页面」通道能看到页面快照。",
             ),
         )
@@ -333,7 +338,7 @@ private fun ScreenReaderSection(vm: LedgerViewModel, resumeTick: Int, onOpenAcce
         SettingsTutorial(
             "什么时候才需要随选朗读",
             listOf(
-                "正常情况下不需要：只要「易控钱包 支付页面采集」开着，微信页面就能读到。",
+                "正常情况下不需要：只要「AeriPocket 支付页面采集」开着，微信页面就能读到。",
                 "如果捕获日志里微信一直是「页面为空」，再开启随选朗读（Select to Speak）兜底；" +
                     "找不到时在系统设置里搜索「随选朗读」。",
                 "TalkBack 也可以替代随选朗读；它同样会朗读屏幕内容，按需选择。",
@@ -382,7 +387,7 @@ private fun OverlaySection(vm: LedgerViewModel, resumeTick: Int, onOpenOverlayPe
                 "卡片打开时这笔账已经记好：改金额/分类/账户后关掉卡片即同步修改；" +
                     "点「忽略」删除这笔；关掉卡片（或长时间不操作）＝保留这笔。",
                 "若开关为灰色不可开：安卓 13+ 需先做「允许受限制的设置」（见通知监听教程第 1 步）。",
-                "小米/澎湃额外需要「后台弹出界面」类权限：设置 → 应用管理 → 易控钱包 → 权限 → 后台弹出界面，允许。",
+                "小米/澎湃额外需要「后台弹出界面」类权限：设置 → 应用管理 → AeriPocket → 权限 → 后台弹出界面，允许。",
                 "付款后若 Logcat 有 confirm card shown 但看不到卡片：是支付保护中心/支付保险箱拦截，" +
                     "见保活设置；可在开发者功能里用「悬浮确认卡（立即）」测试。",
             ),
