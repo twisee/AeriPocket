@@ -1,4 +1,4 @@
-<img width="2560" height="1528" alt="image" src="https://github.com/user-attachments/assets/c2ff5582-3e5c-40c2-8761-94986c240d11" /># AeriPocket
+# AeriPocket
 
 一个围绕日常预算与爱丽丝主题设计的 Android 个人记账软件。轻量、简约，账本保存在本机，无需注册账号。
 
