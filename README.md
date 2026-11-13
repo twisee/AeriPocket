@@ -1,4 +1,4 @@
-# AeriPocket
+<img width="2560" height="1528" alt="image" src="https://github.com/user-attachments/assets/c2ff5582-3e5c-40c2-8761-94986c240d11" /># AeriPocket
 
 一个围绕日常预算与爱丽丝主题设计的 Android 个人记账软件。轻量、简约，账本保存在本机，无需注册账号。
 
@@ -41,7 +41,7 @@ Android 8.0及以上。在[Releases](https://github.com/twisee/AeriPocket/releas
 
 ## 来源与许可
 
-本项目直接基于 [ControlECO](https://github.com/ArrogHie/ControlECO) 定制，基线提交 `bd3152363c499bc6cb7453d73d2d146ccf78a0be`。保留上游贡献记录、[原项目说明](docs/UPSTREAM_README.md)及 [GPL-3.0许可](LICENSE)。定制说明与历史变更见 [README-CUSTOM.md](README-CUSTOM.md)。
+本项目直接基于 [ControlECO](https://github.com/ArrogHie/ControlECO) 定制，基线提交 `bd3152363c499bc6cb7453d73d2d146ccf78a0be`。保留上游贡献记录、[原项目说明](docs/UPSTREAM_README.md)及 [GPL-3.0许可](LICENSE)。定制说明与历史变更见 [README-CUSTOM.md](README-CUSTOM.md)。本项目使用 OpenAI Codex 辅助开发。
 
 人物为相关作品衍生主题素材，不代表官方出品；原角色权利不因本项目的代码许可而转移。
 
