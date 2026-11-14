@@ -5,7 +5,8 @@
 - 上游：https://github.com/ArrogHie/ControlECO
 - 基线提交：bd3152363c499bc6cb7453d73d2d146ccf78a0be（上游版本 1.0.6）
 - 代码许可：沿用仓库 LICENSE 中的 GPL-3.0，保留原项目说明与贡献者信息。
-- 当前正式版本：1.0.0；包名 com.twisee.wallet.eco。
+- 当前正式版本：1.0.1；包名 com.twisee.wallet.eco。
+- 1.0.1 修复补充信息输入后返回金额编辑，增加跟随主题色的四则计算键盘，详见 [更新说明](docs/releases/1.0.1.md)。
 - 旧版个人 App com.twisee.wallet 与原版 ECO 均可并存。旧账本不会自动迁移；请在新版重新导入导出的账单。
 
 ## 复用与修改边界

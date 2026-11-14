@@ -42,6 +42,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +54,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -82,11 +88,11 @@ import java.time.LocalTime
 import java.time.ZoneId
 
 /**
- * 快速记账：金额第一——大字金额 + 三步引导 + 收支分段 + 分类折叠条 + 数字键盘 + 记一笔。
+ * 快速记账：大字金额与算式 + 三步引导 + 收支分段 + 分类折叠条 + 计算键盘 + 记一笔。
  *
  * 版式照设计稿：内容区（金额/分段/分类/补充信息）可滚动，键盘与主按钮钉在底部；
  * 系统输入法弹出时（写商户/备注）只收起数字键盘、把高度让给表单，主按钮始终可达，
- * 关闭输入法后键盘自动恢复，保证数字键盘永远不会被输入法盖住。
+ * 点击金额清除表单焦点并收起输入法，恢复计算键盘；关闭输入法后也自动恢复。
  */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -95,7 +101,10 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
     val allCategories by vm.categories.collectAsStateWithLifecycle()
     val categories = allCategories.filterNot { CategoryRules.isRefundIncome(it.type, it.name) }
 
-    var amountText by remember { mutableStateOf("") }
+    var calculator by rememberSaveable(stateSaver = listSaver<AmountCalculator, String>(
+        save = { listOf(it.input, it.completedExpression.orEmpty(), it.isResult.toString()) },
+        restore = { AmountCalculator(it[0], it[1].ifEmpty { null }, it[2].toBoolean()) },
+    )) { mutableStateOf(AmountCalculator()) }
     var type by remember { mutableStateOf(TxType.EXPENSE) }
     var categoryId by remember { mutableStateOf<Long?>(null) }
     var accountId by remember { mutableStateOf<Long?>(null) }
@@ -119,39 +128,16 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
         }
     }
 
-    fun appendKey(key: String) {
-        if (key == ".") {
-            if (amountText.isEmpty()) {
-                amountText = "0."
-                error = null
-            } else if (!amountText.contains('.')) {
-                amountText += "."
-                error = null
-            }
-            return
-        }
-        val next = if (amountText == "0") key else amountText + key
-        val dot = next.indexOf('.')
-        if (dot >= 0 && next.length - dot - 1 > 2) {
-            error = "最多两位小数"
-            return
-        }
-        if (next.replace(".", "").length > 9) {
-            error = "金额最多 9 位整数"
-            return
-        }
-        amountText = next
-        error = null
+    fun pressKey(key: String) {
+        val edit = calculator.press(key)
+        calculator = edit.state
+        error = edit.error
     }
 
-    fun backspace() {
-        error = null
-        if (amountText.isNotEmpty()) amountText = amountText.dropLast(1)
-    }
-
-    val cents = Money.parseCents(amountText)
+    val calculation = calculator.result
+    val cents = calculation.cents
     val hasAmount = cents != null && cents > 0L
-    val valid = hasAmount && categoryId != null && accountId != null && !saving
+    val valid = calculator.input.isNotEmpty() && categoryId != null && accountId != null && !saving
     val catsOfType = categories.filter { it.type == type }
     val selectedCategory = catsOfType.firstOrNull { it.id == categoryId }
     val step = when {
@@ -163,15 +149,18 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
     val density = LocalDensity.current
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
     val contentScroll = rememberScrollState()
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
 
     fun save() {
         if (saving) return
-        val amount = Money.parseCents(amountText)
+        val amount = calculation.cents
         // AA 人数只在「支出 + 勾选 AA」时才需要合法；其余情况一律按 0 落库
         val wantAa = type == TxType.EXPENSE && aaEnabled
         val shares = if (wantAa) BudgetShare.parseShares(aaSharesText) else 0
         when {
-            amount == null || amount <= 0L -> error = "请输入有效金额"
+            amount == null -> error = calculation.error ?: "请输入有效金额"
+            amount <= 0L -> error = "金额须大于零"
             categoryId == null -> error = "请选择分类"
             accountId == null -> error = "请选择账户"
             wantAa && shares == null -> error = "AA 人数需在 2 到 99 之间"
@@ -216,11 +205,21 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
         ) {
             Spacer(Modifier.height(12.dp))
 
-            AmountHero(amountText = amountText, hasAmount = hasAmount)
+            AmountHero(
+                amountText = calculator.displayAmount,
+                formula = calculator.formula,
+                hasAmount = hasAmount,
+                onEdit = {
+                    focusManager.clearFocus(force = true)
+                    keyboard?.hide()
+                },
+            )
 
             Spacer(Modifier.height(10.dp))
             Box(Modifier.fillMaxWidth().heightIn(min = 28.dp), contentAlignment = Alignment.Center) {
-                val message = error
+                val message = error ?: calculation.error.takeIf {
+                    calculator.input.isNotEmpty() && calculator.input.last() !in "+−×÷"
+                }
                 if (message != null) {
                     Text(message, style = TxErrorStyle, color = MaterialTheme.eco.clay, textAlign = TextAlign.Center)
                 } else {
@@ -256,7 +255,13 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
             )
 
             Spacer(Modifier.height(10.dp))
-            DetailsToggle(expanded = showMore, onToggle = { showMore = !showMore })
+            DetailsToggle(expanded = showMore, onToggle = {
+                if (showMore) {
+                    focusManager.clearFocus(force = true)
+                    keyboard?.hide()
+                }
+                showMore = !showMore
+            })
 
             if (showMore) {
                 Spacer(Modifier.height(8.dp))
@@ -343,14 +348,10 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
             if (!imeVisible) {
                 EcoHairline(color = MaterialTheme.eco.ruleStrong)
                 Spacer(Modifier.height(4.dp))
-                TxKeypad(
-                    onDigit = ::appendKey,
-                    onDot = { appendKey(".") },
-                    onBackspace = ::backspace,
-                    onClear = {
-                        amountText = ""
-                        error = null
-                    },
+                Text("金额计算", style = TxSectionLabelStyle, color = MaterialTheme.eco.blue,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp))
+                CalculatorKeypad(
+                    onKey = ::pressKey,
                     modifier = Modifier.padding(horizontal = 14.dp),
                 )
                 Spacer(Modifier.height(6.dp))
@@ -370,9 +371,9 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
 
 /** 金额主体：AMOUNT / 金额 + ¥ + 自适应大数字 + 闪烁光标（背后一层极淡的玉色光斑） */
 @Composable
-private fun AmountHero(amountText: String, hasAmount: Boolean) {
+private fun AmountHero(amountText: String, formula: String?, hasAmount: Boolean, onEdit: () -> Unit) {
     val c = MaterialTheme.eco
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().semantics { contentDescription = "修改金额" }.clickable(onClick = onEdit), contentAlignment = Alignment.Center) {
         Canvas(Modifier.matchParentSize()) {
             drawRect(
                 brush = Brush.radialGradient(
@@ -388,6 +389,11 @@ private fun AmountHero(amountText: String, hasAmount: Boolean) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("AMOUNT / 金额", style = TxAmountLabelStyle, color = c.blue)
             Spacer(Modifier.height(8.dp))
+            if (formula != null) {
+                Text(formula, style = EcoType.PageNote, color = c.muted,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(6.dp))
+            }
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.Center) {
                 Text(
                     Money.symbol,
@@ -402,6 +408,8 @@ private fun AmountHero(amountText: String, hasAmount: Boolean) {
                 )
                 BlinkingCaret()
             }
+            Spacer(Modifier.height(6.dp))
+            Text("点击金额，随时返回计算", style = TxSectionLabelStyle, color = c.quiet)
         }
     }
 }
