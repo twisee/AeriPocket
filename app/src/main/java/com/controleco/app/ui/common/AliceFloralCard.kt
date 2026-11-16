@@ -149,7 +149,7 @@ internal fun AliceBudgetCard(budgetCents: Long, spentCents: Long, ratio: Float, 
             Spacer(Modifier.height(7.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FloralAction(currency, onCurrency)
-                FloralAction("账户", onOpenAccount) { Icon(EcoIcons.Wallet, null, Modifier.size(13.dp), tint = text.color) }
+
             }
             Spacer(Modifier.weight(1f))
             Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(text.color.copy(alpha = .16f))) {

@@ -56,6 +56,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -466,6 +467,11 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         periodRange.flatMapLatest { (start, end) -> txDao.observeSpendingCategorySums(start, end) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val periodBudgetCategorySums: StateFlow<List<CategorySumRow>?> =
+        periodRange.flatMapLatest { (start, end) -> txDao.observeBudgetCategorySums(start, end) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /**
      * 本期「实际支出」= 未被标记「已退款」的支出，**AA 按 m ÷ n 折算、「不计入预算」按全额**
      * （钱确实花了，只是不进预算额度）。统计页 `02` 的总支出与分类圆环用它；
@@ -491,6 +497,14 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- 交易 ----------
 
+    suspend fun csvExportSnapshot(start: Long = Long.MIN_VALUE, end: Long = Long.MAX_VALUE): com.controleco.app.csv.LedgerExportSnapshot =
+        withContext(Dispatchers.IO) {
+            require(start < end) { "结束日期不能早于开始日期" }
+            db.withTransaction {
+                com.controleco.app.csv.LedgerExportSnapshot(txDao.rowsForCsv(start, end), categoryDao.getAll().associate { it.id to it.name })
+            }
+        }
+
     fun saveTransaction(
         id: Long,
         type: TxType,
@@ -505,7 +519,7 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         budgetExcluded: Boolean = false,
         /** AA 人数（0 = 未开启；只对支出生效，超出 2..99 会被归一化为 0） */
         aaShares: Int = 0,
-        rememberMerchantCategory: Boolean = true,
+        rememberMerchantCategory: Boolean = false,
         onResult: (String?) -> Unit = {},
     ) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -537,9 +551,9 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
                             }
                             com.controleco.app.capture.OverlayFieldGuards.mark(key, changed)
                         }
-                        if (rememberMerchantCategory && old.refundMark != RefundMark.REFUND_INCOME && MerchantRules.explicitKeyOf(counterparty) != null) {
-                            persistMerchantRule(0, counterparty, type, categoryId, if (old.source != TxSource.MANUAL) accountId else null)
-                        }
+                    }
+                    if (rememberMerchantCategory && old?.refundMark != RefundMark.REFUND_INCOME && MerchantRules.explicitKeyOf(counterparty) != null) {
+                        persistMerchantRule(0, counterparty, type, categoryId)
                     }
                 }
                 withContext(Dispatchers.Main) { onResult(null) }
@@ -1093,6 +1107,13 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     val merchantRules: StateFlow<List<com.controleco.app.data.db.MerchantRuleEntity>> =
         merchantRuleDao.observeRecent()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val merchantHistory = txDao.observeMerchantBillKeys()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val merchantAssociatedCounts = combine(merchantRules, merchantHistory) { rules, history ->
+        MerchantEntrySupport.associatedCounts(rules, history)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     /** Explicit mapping uses the existing rule table and updates only matching merchants of the same direction. */
     private suspend fun persistMerchantRule(id: Long, merchant: String, type: TxType, categoryId: Long, learnedAccount: Long? = null): Int {

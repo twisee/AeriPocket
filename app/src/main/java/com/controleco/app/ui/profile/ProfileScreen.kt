@@ -1164,7 +1164,7 @@ private fun ImportTile(onClick: () -> Unit, modifier: Modifier = Modifier) {
             Icon(EcoIcons.Download, contentDescription = null, tint = c.onHero, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(6.dp))
             Text(
-                "导入账单",
+                "导入 / 导出",
                 style = EcoType.Chip.copy(fontSize = 12.5.sp, fontWeight = FontWeight(800), letterSpacing = 0.sp),
                 color = c.onHero,
                 maxLines = 1,
@@ -1195,13 +1195,13 @@ private fun ImportOrb(onClick: () -> Unit, modifier: Modifier = Modifier) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
                 EcoIcons.File,
-                contentDescription = "账单导入",
+                contentDescription = "账单导入与导出",
                 tint = c.onHero,
                 modifier = Modifier.size(19.dp),
             )
             Spacer(Modifier.height(3.dp))
             Text(
-                "导入账单",
+                "导入 / 导出",
                 style = EcoType.Micro.copy(fontSize = 8.5.sp, fontWeight = FontWeight(800), letterSpacing = 0.sp),
                 color = c.onHero,
                 maxLines = 1,

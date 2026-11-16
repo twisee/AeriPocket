@@ -98,6 +98,8 @@ import java.time.ZoneId
 @Composable
 fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
     val accounts by vm.accounts.collectAsStateWithLifecycle()
+    val merchantRules by vm.merchantRules.collectAsStateWithLifecycle()
+    val merchantHistory by vm.merchantHistory.collectAsStateWithLifecycle()
     val allCategories by vm.categories.collectAsStateWithLifecycle()
     val categories = allCategories.filterNot { CategoryRules.isRefundIncome(it.type, it.name) }
 
@@ -109,6 +111,9 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
     var categoryId by remember { mutableStateOf<Long?>(null) }
     var accountId by remember { mutableStateOf<Long?>(null) }
     var date by remember { mutableStateOf(LocalDate.now()) }
+    var timeOfDay by remember { mutableStateOf(LocalTime.now()) }
+    var manualCategory by remember { mutableStateOf(false) }
+    var rememberMerchantCategory by remember { mutableStateOf(false) }
     var counterparty by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     // 预算口径（只对支出）：不计入预算 / AA 支出人数
@@ -116,7 +121,6 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
     var aaEnabled by remember { mutableStateOf(false) }
     var aaSharesText by remember { mutableStateOf("") }
     var showMore by remember { mutableStateOf(false) }
-    var categoryExpanded by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
 
@@ -139,12 +143,12 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
     val hasAmount = cents != null && cents > 0L
     val valid = calculator.input.isNotEmpty() && categoryId != null && accountId != null && !saving
     val catsOfType = categories.filter { it.type == type }
-    val selectedCategory = catsOfType.firstOrNull { it.id == categoryId }
-    val step = when {
-        !hasAmount -> 0
-        categoryId == null -> 1
-        else -> 2
+    val suggestions = com.controleco.app.data.MerchantEntrySupport.suggestions(counterparty, type, merchantRules, categories, merchantHistory)
+    LaunchedEffect(counterparty, type, merchantRules, categories) {
+        val matched = com.controleco.app.capture.MerchantRules.categoryIdFrom(merchantRules, categories, type, counterparty, "")
+        categoryId = com.controleco.app.data.MerchantEntrySupport.categoryForMerchant(manualCategory, matched, categoryId)
     }
+
 
     val density = LocalDensity.current
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
@@ -165,18 +169,14 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
             accountId == null -> error = "请选择账户"
             wantAa && shares == null -> error = "AA 人数需在 2 到 99 之间"
             else -> {
-                // 手动记账：默认记的是"现在"（含时分），选了别的日期则沿用当前时刻
                 val zone = ZoneId.systemDefault()
-                val ts = if (date == LocalDate.now()) {
-                    System.currentTimeMillis()
-                } else {
-                    date.atTime(LocalTime.now()).atZone(zone).toInstant().toEpochMilli()
-                }
+                val ts = date.atTime(timeOfDay).atZone(zone).toInstant().toEpochMilli()
                 saving = true
                 vm.saveTransaction(
                     -1L, type, amount, categoryId!!, accountId!!, ts, note.trim(), counterparty.trim(),
                     budgetExcluded = budgetExcluded,
                     aaShares = shares ?: 0,
+                    rememberMerchantCategory = rememberMerchantCategory,
                     onResult = { message ->
                         saving = false
                         if (message == null) {
@@ -204,137 +204,40 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
                 .padding(horizontal = 22.dp),
         ) {
             Spacer(Modifier.height(12.dp))
-
-            AmountHero(
-                amountText = calculator.displayAmount,
-                formula = calculator.formula,
-                hasAmount = hasAmount,
-                onEdit = {
-                    focusManager.clearFocus(force = true)
-                    keyboard?.hide()
-                },
-            )
-
-            Spacer(Modifier.height(10.dp))
-            Box(Modifier.fillMaxWidth().heightIn(min = 28.dp), contentAlignment = Alignment.Center) {
-                val message = error ?: calculation.error.takeIf {
-                    calculator.input.isNotEmpty() && calculator.input.last() !in "+−×÷"
-                }
-                if (message != null) {
-                    Text(message, style = TxErrorStyle, color = MaterialTheme.eco.clay, textAlign = TextAlign.Center)
-                } else {
-                    QuickGuide(step = step)
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                // 设计稿里快速记账的收支切换是「深色选中块 + 白字」，与编辑页的白滑块不同
-                EcoFilterStrip(
-                    options = listOf("支出", "收入"),
-                    selectedIndex = if (type == TxType.EXPENSE) 0 else 1,
-                    onSelect = {
-                        type = if (it == 0) TxType.EXPENSE else TxType.INCOME
-                        error = null
-                        // 预算口径只对支出有意义：切到收入时把两个标记一起清掉
-                        if (type == TxType.INCOME) {
-                            budgetExcluded = false
-                            aaEnabled = false
-                        }
-                    },
-                )
+                EcoFilterStrip(options = listOf("支出", "收入"), selectedIndex = if(type == TxType.EXPENSE) 0 else 1,
+                    onSelect = { type = if(it == 0) TxType.EXPENSE else TxType.INCOME; manualCategory = false; rememberMerchantCategory = false })
             }
-
-            Spacer(Modifier.height(18.dp))
-            CategoryBlock(
-                categories = catsOfType,
-                selected = selectedCategory,
-                expanded = categoryExpanded,
-                onToggle = { categoryExpanded = !categoryExpanded },
-                onSelect = { categoryId = it },
-            )
-
-            Spacer(Modifier.height(10.dp))
-            DetailsToggle(expanded = showMore, onToggle = {
-                if (showMore) {
-                    focusManager.clearFocus(force = true)
-                    keyboard?.hide()
-                }
-                showMore = !showMore
-            })
-
-            if (showMore) {
-                Spacer(Modifier.height(8.dp))
-                Column(Modifier.fillMaxWidth()) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TxSelectField(
-                            value = accounts.firstOrNull { it.id == accountId }?.name ?: "",
-                            options = accounts.map { it.id to it.name },
-                            onSelect = { accountId = it },
-                            modifier = Modifier.weight(1f),
-                            label = "账户",
-                            height = 34.dp,
-                            radius = 9.dp,
-                            contentDescription = "选择账户",
-                        )
-                        TxDateField(
-                            date = date,
-                            onPick = { date = it },
-                            modifier = Modifier.weight(1f),
-                            label = "日期",
-                            height = 34.dp,
-                            radius = 9.dp,
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        EcoField(
-                            label = "商户",
-                            value = counterparty,
-                            onValueChange = { counterparty = it },
-                            modifier = Modifier.weight(1f),
-                            placeholder = "例如：瑞幸咖啡",
-                            minHeight = 34.dp,
-                        )
-                        EcoField(
-                            label = "备注",
-                            value = note,
-                            onValueChange = { note = it },
-                            modifier = Modifier.weight(1f),
-                            placeholder = "可选",
-                            minHeight = 34.dp,
-                        )
-                    }
-                    // 预算口径：只对支出显示（放在「补充信息」里，不打断金额→分类→记一笔的主流程）
-                    if (type == TxType.EXPENSE) {
-                        Spacer(Modifier.height(8.dp))
-                        TxSectionLabel("预算")
-                        Spacer(Modifier.height(2.dp))
-                        TxBudgetOptions(
-                            budgetExcluded = budgetExcluded,
-                            onBudgetExcludedChange = {
-                                budgetExcluded = it
-                                error = null
-                            },
-                            aaEnabled = aaEnabled,
-                            onAaEnabledChange = { on ->
-                                aaEnabled = on
-                                if (on && BudgetShare.parseShares(aaSharesText) == null) {
-                                    aaSharesText = BudgetShare.DEFAULT_AA_SHARES.toString()
-                                }
-                                error = null
-                            },
-                            sharesText = aaSharesText,
-                            onSharesTextChange = {
-                                aaSharesText = it
-                                error = null
-                            },
-                            compact = true,
-                        )
-                    }
+            Spacer(Modifier.height(14.dp))
+            AmountHero(calculator.displayAmount, calculator.formula, hasAmount) { focusManager.clearFocus(force = true); keyboard?.hide() }
+            if(error != null) Text(error!!, style = TxErrorStyle, color = MaterialTheme.eco.clay)
+            Spacer(Modifier.height(16.dp))
+            EntryDateTime(date, timeOfDay, { date = it }, { timeOfDay = it })
+            Spacer(Modifier.height(16.dp))
+            EntryCategories(catsOfType, categoryId) { categoryId = it; manualCategory = true; rememberMerchantCategory = false }
+            Spacer(Modifier.height(13.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                EntryMerchant(counterparty, { counterparty = it; rememberMerchantCategory = false }, suggestions, { suggestion ->
+                    counterparty = suggestion.name
+                    rememberMerchantCategory = false
+                    categoryId = com.controleco.app.data.MerchantEntrySupport.categoryForMerchant(manualCategory, suggestion.categoryId, categoryId)
+                }, Modifier.weight(1f))
+                EcoField(label = "备注", value = note, onValueChange = { note = it }, modifier = Modifier.weight(1f), placeholder = "可不填", minHeight = 36.dp)
+            }
+            if (counterparty.isNotBlank()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Checkbox(checked = rememberMerchantCategory, onCheckedChange = { rememberMerchantCategory = it }, modifier = Modifier.size(31.dp))
+                    Text("设为该商户的默认分类", fontSize = 11.sp, color = MaterialTheme.eco.muted)
                 }
             }
-
+            DetailsToggle(expanded = showMore, onToggle = { showMore = !showMore })
+            if (showMore && type == TxType.EXPENSE) {
+                TxBudgetOptions(budgetExcluded = budgetExcluded, onBudgetExcludedChange = { budgetExcluded = it },
+                    aaEnabled = aaEnabled, onAaEnabledChange = {
+                        aaEnabled = it
+                        if(it && BudgetShare.parseShares(aaSharesText) == null) aaSharesText = BudgetShare.DEFAULT_AA_SHARES.toString()
+                    }, sharesText = aaSharesText, onSharesTextChange = { aaSharesText = it }, compact = true)
+            }
             Spacer(Modifier.height(16.dp))
         }
 
@@ -374,26 +277,8 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
 private fun AmountHero(amountText: String, formula: String?, hasAmount: Boolean, onEdit: () -> Unit) {
     val c = MaterialTheme.eco
     Box(Modifier.fillMaxWidth().semantics { contentDescription = "修改金额" }.clickable(onClick = onEdit), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.matchParentSize()) {
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        c.jade.copy(alpha = if (c.isDark) 0.13f else 0.11f),
-                        Color.Transparent,
-                    ),
-                    center = Offset(size.width / 2f, size.height / 2f),
-                    radius = size.maxDimension * 0.46f,
-                ),
-            )
-        }
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("AMOUNT / 金额", style = TxAmountLabelStyle, color = c.blue)
-            Spacer(Modifier.height(8.dp))
-            if (formula != null) {
-                Text(formula, style = EcoType.PageNote, color = c.muted,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(6.dp))
-            }
+            if (formula != null) Text(formula, style = EcoType.PageNote, color = c.muted, maxLines = 1)
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.Center) {
                 Text(
                     Money.symbol,
@@ -408,8 +293,7 @@ private fun AmountHero(amountText: String, formula: String?, hasAmount: Boolean,
                 )
                 BlinkingCaret()
             }
-            Spacer(Modifier.height(6.dp))
-            Text("点击金额，随时返回计算", style = TxSectionLabelStyle, color = c.quiet)
+
         }
     }
 }
@@ -461,180 +345,6 @@ private fun BlinkingCaret() {
             .height(31.dp)
             .background(MaterialTheme.eco.blue.copy(alpha = alpha)),
     )
-}
-
-/** 三步引导：金额 → 分类 → 记一笔；done = 玉绿实心白勾，current = 蓝底外扩 */
-@Composable
-private fun QuickGuide(step: Int) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        GuideNode(EcoIcons.Plus, done = step > 0, current = step == 0)
-        GuideLink()
-        GuideNode(EcoIcons.Tag, done = step > 1, current = step == 1)
-        GuideLink()
-        GuideNode(EcoIcons.Check, done = false, current = step == 2)
-    }
-}
-
-@Composable
-private fun GuideNode(icon: ImageVector, done: Boolean, current: Boolean) {
-    val c = MaterialTheme.eco
-    Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
-        if (current) {
-            Box(
-                Modifier
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .border(1.dp, c.blue.copy(alpha = 0.22f), CircleShape),
-            )
-        }
-        Box(
-            Modifier
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(
-                    when {
-                        done -> c.jade
-                        current -> c.blueSoft
-                        else -> c.surface
-                    },
-                )
-                .border(
-                    1.dp,
-                    when {
-                        done -> Color.Transparent
-                        current -> c.blue.copy(alpha = 0.38f)
-                        else -> c.rule
-                    },
-                    CircleShape,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = when {
-                    done -> Color.White
-                    current -> c.blueDeep
-                    else -> c.quiet
-                },
-                modifier = Modifier.size(13.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun GuideLink() {
-    Box(
-        Modifier
-            .width(23.dp)
-            .height(1.dp)
-            .background(MaterialTheme.eco.rule),
-    )
-}
-
-/** 分类：抬头（分类 + tag 图标）+ 38 高的选择条 + 展开后的分类 chips（选完不收起） */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun CategoryBlock(
-    categories: List<CategoryEntity>,
-    selected: CategoryEntity?,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    onSelect: (Long) -> Unit,
-) {
-    val c = MaterialTheme.eco
-    val shape = RoundedCornerShape(12.dp)
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 2.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("分类", style = TxSectionLabelStyle, color = c.muted)
-            Spacer(Modifier.weight(1f))
-            Icon(EcoIcons.Tag, contentDescription = null, tint = c.blue, modifier = Modifier.size(13.dp))
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(38.dp)
-                .shadow(
-                    elevation = 6.dp,
-                    shape = shape,
-                    clip = false,
-                    ambientColor = c.ink.copy(alpha = if (c.isDark) 0.3f else 0.08f),
-                    spotColor = c.ink.copy(alpha = if (c.isDark) 0.34f else 0.12f),
-                )
-                .clip(shape)
-                .background(c.surface)
-                .border(1.dp, c.ruleStrong, shape)
-                .clickable { onToggle() }
-                .padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (selected != null) {
-                EcoCategoryTile(
-                    categoryName = selected.name,
-                    icon = selected.icon,
-                    size = 20.dp,
-                    radius = 7.dp,
-                )
-                Spacer(Modifier.width(8.dp))
-            }
-            Text(
-                text = selected?.name ?: "请选择分类",
-                style = TxCategoryNameStyle,
-                color = if (selected == null) c.muted else c.ink,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Icon(
-                EcoIcons.ChevDown,
-                contentDescription = if (expanded) "收起分类" else "展开分类",
-                tint = c.blue,
-                modifier = Modifier
-                    .size(13.dp)
-                    .graphicsLayer { rotationZ = if (expanded) 180f else 0f },
-            )
-        }
-        if (expanded) {
-            Spacer(Modifier.height(6.dp))
-            if (categories.isEmpty()) {
-                Text(
-                    "还没有分类，先去「分类」页新建一个",
-                    style = EcoType.PageNote,
-                    color = c.quiet,
-                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 4.dp),
-                )
-            } else {
-                FlowRow(
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 82.dp)
-                        .verticalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    categories.forEach { category ->
-                        TxCategoryChip(
-                            name = category.name,
-                            selected = category.id == selected?.id,
-                            onClick = { onSelect(category.id) },
-                            height = 27.dp,
-                        )
-                    }
-                }
-            }
-        }
-    }
 }
 
 /** 补充信息开关：edit 图标 + 文案 + 右侧 chevron（展开转 90°） */

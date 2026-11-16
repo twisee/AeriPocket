@@ -475,30 +475,7 @@ private fun ConfirmPendingSheet(
                 }
             }
 
-            Column {
-                Text("账户", style = EcoType.FieldLabel, color = c.muted)
-                Spacer(Modifier.height(6.dp))
-                if (accounts.isEmpty()) {
-                    Text("暂无账户，请先在账户管理中添加", style = EcoType.PageNote, color = c.amber)
-                } else {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        accounts.forEach { acc ->
-                            EcoChip(
-                                text = acc.name,
-                                selected = accountId == acc.id,
-                                onClick = {
-                                    accountEdited = true
-                                    accountId = acc.id
-                                    if (error != null) error = null
-                                },
-                            )
-                        }
-                    }
-                }
-            }
+
 
             error?.let {
                 Text(it, style = EcoType.PageNote, color = c.clay)

@@ -99,6 +99,8 @@ internal object PendingActions {
                 MerchantRules.learn(it, item.type, categoryId, accountId, counterpartyValue, note)
             }
             AppLog.i("pending", "confirmed #${item.id} externalId=$externalId tx=$txId")
+            com.controleco.app.diagnostics.CaptureDiagnostics.record("user_action", item.sourcePackage, "已入账", "用户确认记账",
+                mapOf("identity" to com.controleco.app.diagnostics.CaptureDiagnostics.identity(item.dedupKey), "transactionId" to txId.toString()))
         }
         return txId
     }
@@ -114,6 +116,8 @@ internal object PendingActions {
             throw e
         }
         AppLog.i("pending", "discarded #$id")
+        com.controleco.app.diagnostics.CaptureDiagnostics.record("user_action", item?.sourcePackage.orEmpty(), "已忽略", "用户忽略待确认账单",
+            mapOf("identity" to com.controleco.app.diagnostics.CaptureDiagnostics.identity(item?.dedupKey.orEmpty())))
     }
 
     /**
@@ -208,6 +212,8 @@ internal object PendingActions {
             throw e
         }
         AppLog.i("pending", "undo entered tx=#$txId externalId=$externalId")
+        com.controleco.app.diagnostics.CaptureDiagnostics.record("user_action", "账单", "已撤销", "用户撤销已入账记录",
+            mapOf("transactionId" to txId.toString(), "identity" to com.controleco.app.diagnostics.CaptureDiagnostics.identity(externalId.removePrefix("NTF:"))))
         return txId != null
     }
 }

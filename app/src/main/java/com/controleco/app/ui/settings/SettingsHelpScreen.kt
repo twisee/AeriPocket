@@ -1,6 +1,5 @@
 package com.controleco.app.ui.settings
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,7 +8,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -18,12 +16,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -31,7 +26,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.controleco.app.R
 import com.controleco.app.ui.common.EcoIcons
 import com.controleco.app.ui.common.HelpOnboarding
 import com.controleco.app.ui.common.SettingsNote
@@ -40,17 +34,7 @@ import com.controleco.app.ui.common.SettingsSection
 import com.controleco.app.ui.theme.EcoType
 import com.controleco.app.ui.theme.eco
 
-/**
- * 设置 → 帮助：把 `docs/说明/软件说明.md` 重排成随主题变化的原生页面。
- *
- * 版式：不套卡片，正文直接排在页面纸面上；分组用 `SettingsSection` 分隔。
- * 原文的两种标记都做成**背景色标注**——
- * - 反引号包裹的词（界面名 / 状态词，如 `剩余预算`）→ 主色浅底 + 深色字；
- * - `**加粗**` 包裹的强调句 → 暖金浅底 + 加粗深字。
- *
- * 原文只做版式适配，不改口径：预算三处读数、自动记账的重复/遗漏处理、
- * 微信红包、悬浮窗与银行软件限制都按文档原文。
- */
+/** 原生帮助正文与 docs/说明/软件说明.md 同步，保留行内高亮和主题色。 */
 
 /** 帮助正文：比常规行副标大一档，行高放宽，便于长段落阅读 */
 private val HelpBody: TextStyle = EcoType.RowSub.copy(fontSize = 10.5.sp, lineHeight = 18.sp)
@@ -68,141 +52,104 @@ fun SettingsHelpScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) { HelpOnboarding.markViewed(context) }
 
     SettingsPage(micro = "HELP", title = "帮助", onBack = onBack) {
-        SettingsSection(title = "预算", aside = "BUDGET")
-        HelpEntryBlock(
-            entry = HelpEntry(
-                title = "首页",
-                icon = EcoIcons.Home,
-                paragraphs = listOf(
-                    "内圆环表示本月剩余天数，外圆环表示本月剩余预算。" +
-                        "当剩余预算超出剩余天数时显示绿色，低于时显示黄色，严重低于时显示红色预警。",
-                ),
-                showRing = true,
-            ),
-            tint = MaterialTheme.eco.blue,
-        )
-        HelpEntryBlock(
-            entry = HelpEntry(
-                title = "预算计算",
-                icon = EcoIcons.Pie,
-                paragraphs = listOf(
-                    "首页的 `剩余预算` 和 `本月已花` 仅计入未被 `退款` 和未被标记为 `不计入预算` 的支出账单，" +
-                        "对于 `AA` 账单，仅计入**自己所支付的金额**。",
-                    "统计页的 `实际支出` **不会计入**被 `退款` 的账单，**会计入**被标记为 `不计入预算` 的支出账单，" +
-                        "但是对于 `AA` 账单，只计入**自己所支付的金额**。",
-                    "账单页的 `本月结余` 为所有支出收入的金额总和，不考虑 `退款`、`不计入金额` 和 `AA`。",
-                ),
-            ),
-            tint = MaterialTheme.eco.blue,
-        )
-        HelpEntryBlock(
-            entry = HelpEntry(
-                title = "每月首日",
-                icon = EcoIcons.Calendar,
-                paragraphs = listOf(
-                    "设置每月首日为第 x 日后，本月的 x 日起至次月的 x-1 日内的账单统计到本月内。" +
-                        "对于次月没有第 x 日的，将次月末日前作为本月结束。",
-                ),
-            ),
-            tint = MaterialTheme.eco.blue,
-        )
-
+        SettingsNote("适用于 AeriPocket 1.5.3 · 设置中的功能名称与当前版本一致。")
+        SettingsSection(title = "记账与编辑", aside = "ENTRY")
+        HelpEntryBlock(entry = HelpEntry(
+            title = "新增与补记", icon = EcoIcons.Edit, paragraphs = listOf(
+                "在`流水`右下角点`记一笔`，选择支出或收入，输入金额并选择分类。金额键盘支持加减乘除；填写商户或备注后，点金额可返回计算。",
+                "`日期`和`时间`直接显示在金额下方，可补记过去的账单。新账默认打开记账页时的当前时间，保存采用页面所显示的日期和时分。",
+                "分类不超过4个时直接点选；更多时点`全部`，在面板中搜索或上下滚动选择。选完返回记账页，已填金额、日期、时间和备注会保留。",
+            )), tint = MaterialTheme.eco.blue)
+        HelpEntryBlock(entry = HelpEntry(
+            title = "编辑、删除与退款", icon = EcoIcons.Receipt, paragraphs = listOf(
+                "点流水记录打开编辑页。日期、时间和分类均可修改；打开旧账时保留原时间和原分类。默认一页展示，小屏、大字号或键盘弹出时可滚动表单，底部`保存修改`保持可达。",
+                "右上角`删除`会弹出确认，确认后删除该笔记录。支出记录右上角提供`退款`或`撤销退款`；如果改过表单，请先保存，再操作退款。",
+                "`退款`将尚未退回的剩余金额登记为退款；部分退款也可通过待处理退款选择原支出完成关联。`撤销退款`会清除这笔支出关联的退款记录并恢复其支出金额。已退款账单若要改金额或收支方向，需先撤销退款。",
+                "退款信息显示在原支出上，不再作为一笔普通收入重复展示。退款会修正原消费所在周期的支出；部分退款按剩余实付金额统计，全额退款后不再消耗预算。",
+            )), tint = MaterialTheme.eco.blue)
+        HelpEntryBlock(entry = HelpEntry(
+            title = "统一账本", icon = EcoIcons.Book, paragraphs = listOf(
+                "记账、导入和确认账单均无需选择钱包。旧账及已有退款关联保留；支付宝、微信等支付来源信息仍可用于自动识别。",
+            )), tint = MaterialTheme.eco.blue)
+        SettingsSection(title = "商户与分类", aside = "MERCHANT")
+        HelpEntryBlock(entry = HelpEntry(
+            title = "沿用规则与本次例外", icon = EcoIcons.Tag, paragraphs = listOf(
+                "输入商户名称时可选择已有商户建议，沿用`设置 → 商户归类`中保存的同收支方向分类。**本次手动选择的分类优先**，商户默认不会盖掉你已经手选的分类。",
+                "例如学校食堂默认属于餐饮，本笔手选日常后直接保存，只把这一笔归入日常，默认规则及其他旧账保持原样。下次输入学校食堂，仍可沿用餐饮。",
+                "`设为该商户的默认分类`默认不勾选。只有主动勾选并保存，才更新该商户同收支方向的规则，并同步对应旧账分类。改变商户或手选分类后，该勾选会清除，避免误改长期规则。",
+                "打开已保存的例外账单不会将它改回商户默认；编辑成另一个商户时，若本次没有手选分类，可沿用新商户的规则。收入和支出分别匹配。",
+            )), tint = MaterialTheme.eco.blue)
+        HelpEntryBlock(entry = HelpEntry(
+            title = "关联账单数", icon = EcoIcons.List, paragraphs = listOf(
+                "商户归类页的`关联账单 N 笔`统计现有账本中同商户、同收支方向的正式账单，包含本次例外；不表示每笔都用了同一分类。删除对应账单后数量会减少，原始退款事件不重复计数。",
+                "旧版显示的命中次数是学习次数，不能代表实际使用次数，1.5.3已改用关联账单数。",
+            )), tint = MaterialTheme.eco.blue)
+        SettingsSection(title = "预算与概览", aside = "BUDGET")
+        HelpEntryBlock(entry = HelpEntry(
+            title = "首页与预算设置", icon = EcoIcons.Home, paragraphs = listOf(
+                "首页人物、已花金额、预算金额和进度条反映当前预算使用情况，点击人物的浮字只作装饰，不增加收入。人物按预算使用率每20%切换一档。",
+                "在`个人`页设置月预算或日预算，并在`分类`中为支出分类分配预算。月模式下，个人页的日均是月预算除以本期天数；它与剩余额度推算的建议日额不同。",
+            )), tint = MaterialTheme.eco.blue)
+        HelpEntryBlock(entry = HelpEntry(
+            title = "分类进度条与滚动", icon = EcoIcons.Pie, paragraphs = listOf(
+                "在`概览`中，小分类进度条表示该分类计入预算的支出占本类预算的比例。接近用完变黄，超支变红；未设置预算的分类不显示预算进度。",
+                "分类5条及以内不吸顶、不单独滚动分类列表；超过5条时上方圆环固定，下方列表滚动。上方收支卡及日/月支出日历仍保留，日/月选择后可查看对应流水。",
+                "圆环和原清单金额、占比表示实际支出；进度条使用预算口径。因此勾选过`不计入预算`时，两者可能不同。",
+            )), tint = MaterialTheme.eco.blue)
+        HelpEntryBlock(entry = HelpEntry(
+            title = "预算与支出读数", icon = EcoIcons.Chart, paragraphs = listOf(
+                "`首页已花`和`剩余预算`排除不计入预算的支出，并扣除已关联退款；AA支出按人数平分后逐笔取到分。",
+                "`概览实际支出`同样扣除退款、折算AA，但仍包含不计入预算的支出，因为这笔钱实际已经花出。",
+                "`本月结余`等于所选周期的普通收入减去扣除退款后的支出。结余不按AA人数分摊，也不排除不计入预算项；原始退款事件不会再重复当作普通收入。",
+                "AA标记不会自动生成他人的还款账单。更换货币符号不换算汇率。",
+            )), tint = MaterialTheme.eco.blue)
+        HelpEntryBlock(entry = HelpEntry(
+            title = "每月首日", icon = EcoIcons.Calendar, paragraphs = listOf(
+                "在`个人 → 每月首日`设置记账周期，可选1—30日或月末。设置为10日时，一期包含本月10日至下月9日；遇短月会按该月实际最后一天作为边界。流水和概览随所选周期统计。",
+            )), tint = MaterialTheme.eco.blue)
+        SettingsSection(title = "账单导入与导出", aside = "FILES")
+        HelpEntryBlock(entry = HelpEntry(
+            title = "导入微信与支付宝账单", icon = EcoIcons.File, paragraphs = listOf(
+                "在`个人 → 导入 / 导出`选择账单文件，支持微信XLSX及支付宝CSV；先查看预览，再确认导入。无需选择钱包。",
+                "有可识别单号的重复行会跳过；后续导入也可能补充已有记录的退款状态。自动捕获与导入之间仍可能有重复，请核对流水。导入的退款会关联原支出，无法明确关联时到待处理记录中选择原单。",
+            )), tint = MaterialTheme.eco.blue)
+        HelpEntryBlock(entry = HelpEntry(
+            title = "导出通用CSV", icon = EcoIcons.Download, paragraphs = listOf(
+                "在`个人 → 导入 / 导出 → 导出账单`选择全部账单或指定日期区间，再点`导出并保存 CSV`，由系统选择保存位置。区间包含首尾两天，导出完整范围，不受流水分页影响。",
+                "文件采用UTF-8编码，包含日期时间、收支、分类、金额、商户、备注、来源、已退款金额、实付金额、退款状态、AA人数和是否计入预算；逗号、双引号及多行备注会保留。",
+                "**金额列是原金额，实付金额列是扣除退款后的金额**；实付金额不会再按AA人数相除。原始退款事件不重复导出为收入，退款信息列在原支出行中。",
+                "不同软件的导入模板不同，需要按对方要求映射字段。CSV用于查看、对账和迁移，**不是本应用的完整恢复备份**；导出不会自动上传文件。",
+            )), tint = MaterialTheme.eco.blue)
         SettingsSection(title = "自动记账", aside = "CAPTURE")
-        HelpCallout(
-            "因支付场景较多，很难完全处理，因此推荐使用“悬浮窗入账”，而不是“自动入账”。" +
-                "以及请打开“入账提醒”方便处理。",
-        )
-        HelpEntryBlock(
-            entry = HelpEntry(
-                title = "权限与保活",
-                icon = EcoIcons.Shield,
-                paragraphs = listOf(
-                    "为了确保自动记账正常运行，请授予软件所需的权限，详细在 `设置`-`权限` 页。" +
-                        "为了防止软件被杀后台后需要重新启动权限，请处理软件的保活与自启动相关权限，" +
-                        "详细在 `设置`-`保活与自启动`。",
-                    "当无法进行自动记账或者总是需要去重新打开无障碍功能时，请优先检查 `保活与自启动` 相关。",
-                ),
-            ),
-            tint = MaterialTheme.eco.jade,
-        )
-        HelpEntryBlock(
-            entry = HelpEntry(
-                title = "重复记账",
-                icon = EcoIcons.Copy,
-                paragraphs = listOf(
-                    "当出现重复记账时，如果不属于下面的两种情况之一，请在 `设置`-`开发者功能`-`溯源` 内" +
-                        "找到重复记账账单的捕获信息，然后联系作者修复。",
-                    "部分软件（例如微信），支付成功页没有时间与账单号，对于同一金额的支付成功页，" +
-                        "无法判断是同一账单还是相同金额的不同账单。因此记账规则为：短时间内同一金额不进行多次抓取，" +
-                        "但是超过时间阈值后会再次抓取。为了防止重复记账，结账后请及时退出支付成功页，" +
-                        "长时间不退出支付成功页或者一段时间后再次打开支付成功页会导致重复记账。",
-                    "对于部分电商平台，使用 微信/支付宝/云闪付 支付后，电商平台仍会弹出支付成功页。" +
-                        "因为这两次支付成功页不属于同一软件，所以可能会被认为是不同订单。" +
-                        "虽然针对这种情况已经补充了去重规则，但是仍可能有概率出现记重。" +
-                        "最好的办法是只使用 微信/支付宝/云闪付 而不使用电商平台的方式进行支付" +
-                        "（例如“美团支付”“多多支付”等）。",
-                ),
-            ),
-            tint = MaterialTheme.eco.jade,
-        )
-        HelpEntryBlock(
-            entry = HelpEntry(
-                title = "遗漏记账",
-                icon = EcoIcons.Warning,
-                paragraphs = listOf(
-                    "当出现遗漏记账时，如果不属于下面的两种情况之一，请打开 `设置`-`开发者功能`-`记录所有页面`，" +
-                        "然后再次进行支付。支付后进入 `设置`-`开发者功能`-`捕获日志` 内找到支付相关的页面通知和短信信息，" +
-                        "然后联系作者修复。如果找不到相关的信息，请联系作者说明支付的软件和机型。",
-                    "对于部分电商平台，因缺乏易识别的支付成功页或者支付通知，所以无法进行自动识别记账（例如拼多多）。" +
-                        "设置内的 `监听的APP` 只表示可以监听，但是对于电商平台的支付稳定性较差，" +
-                        "建议使用 微信/支付宝/云闪付 支付。",
-                    "当支付成功时，请在支付成功页短暂停留一秒，以防止软件未能及时捕获到订单。",
-                    "对于支付宝，部分机型会保护支付宝的支付成功页，会有小概率不能正常捕获订单，" +
-                        "该问题暂未找到解决方法，但是概率较小，影响不大。",
-                ),
-            ),
-            tint = MaterialTheme.eco.amber,
-        )
-        HelpEntryBlock(
-            entry = HelpEntry(
-                title = "微信红包",
-                icon = EcoIcons.Gift,
-                paragraphs = listOf(
-                    "因为微信红包没有信息可以识别是曾经被领取的红包还是现在被领取的红包，" +
-                        "所以每次打开微信红包领取页时，都会弹出悬浮窗询问是否需要记录。",
-                ),
-            ),
-            tint = MaterialTheme.eco.amber,
-        )
-        HelpEntryBlock(
-            entry = HelpEntry(
-                title = "悬浮窗相关",
-                icon = EcoIcons.Overlay,
-                paragraphs = listOf(
-                    "悬浮窗被设定总是延迟弹出（延迟约 1-2s）。对于部分被保护的支付页面，手机会不允许弹出悬浮窗，" +
-                        "此时如果正常捕获会发送通知。",
-                ),
-            ),
-            tint = MaterialTheme.eco.amber,
-        )
-
-        SettingsSection(title = "兼容性", aside = "COMPATIBILITY")
-        HelpEntryBlock(
-            entry = HelpEntry(
-                title = "银行软件无法使用",
-                icon = EcoIcons.Wallet,
-                paragraphs = listOf(
-                    "因为该软件需要获取页面进行账单捕获，所以对于一些安全性较高的软件（例如招商银行 app）" +
-                        "此时会无法使用。对于此种情况请在后台关掉该软件或者暂时关闭软件的无障碍权限。",
-                ),
-            ),
-            tint = MaterialTheme.eco.blue,
-        )
-
-        SettingsNote(
-            "遇到说明之外的问题，请在“设置 → 开发者功能”留存捕获日志后联系作者。",
-            modifier = Modifier.padding(top = 18.dp),
-        )
+        HelpEntryBlock(entry = HelpEntry(
+            title = "开关与入账方式", icon = EcoIcons.Check, paragraphs = listOf(
+                "对金额和分类有效的普通交易，`自动入账`、`悬浮窗入账`或`入账提醒`任一开启，都可能先入账再提醒。若希望普通交易逐条确认，需要将这三项都关闭。只关闭自动入账，不等于逐条确认。",
+                "自动入账和悬浮窗入账互斥，入账提醒独立。没有识别出有效支付信息时不会凭空创建账单；退款和微信红包另有确认流程。",
+            )), tint = MaterialTheme.eco.blue)
+        HelpEntryBlock(entry = HelpEntry(
+            title = "权限与后台", icon = EcoIcons.Shield, paragraphs = listOf(
+                "在`设置 → 权限`开启所需采集通道，在`监听的 App`选择来源。通知使用权用于读取其他应用的通知，本应用通知权限用于发送提醒，两者不同。银行短信通道只接收新到短信，不读取历史短信。",
+                "后台采集还受系统省电、自启动和进程管理影响，请查看`保活与自启动`。已授权但通知监听未连接时，应用会尝试恢复；系统未恢复时仍需在手机检查权限和后台设置。",
+            )), tint = MaterialTheme.eco.blue)
+        HelpEntryBlock(entry = HelpEntry(
+            title = "悬浮卡、红包与退款", icon = EcoIcons.Overlay, paragraphs = listOf(
+                "普通悬浮卡通常延迟约3秒，60秒无操作会关闭。**关闭已入账卡片会保留账单，已入账卡片的忽略或撤销会删除该笔账单**。卡片未展示时是否有通知，取决于入账提醒及通知权限。",
+                "微信红包领取页的金额只作预填，需要明确确认才记账；关闭或超时保留待确认，全部确认不会自动处理红包。捕获到的退款也先进入待处理，选择原支出后再关联，不凭同金额自动猜配。",
+            )), tint = MaterialTheme.eco.blue)
+        SettingsSection(title = "漏记、重记与兼容性", aside = "DIAGNOSTICS")
+        HelpEntryBlock(entry = HelpEntry(
+            title = "排查漏记与重记", icon = EcoIcons.Warning, paragraphs = listOf(
+                "先核对权限、监听来源及后台状态。监听目录中有某个应用，不代表它的所有支付场景都能识别；受保护或短暂出现的页面仍可能读不到内容。",
+                "应用会综合金额、时间、交易身份和来源去重，但只有金额相同不足以可靠判断是不是同一笔。支付应用、商家和银行可能同时提供信息，仍可能出现漏记或重复，请核对后补记或删除多余记录。",
+                "需要排查时，在`设置 → 开发者功能 → 记账诊断`开启记录，正常使用后导出诊断日志，并附支付来源、大概时间和金额。诊断只记录开启后的信息，不能追溯以前未采到的支付。",
+                "诊断日志可能含商户、金额及页面文字，分享前请自行检查；日志不会自动上传。",
+            )), tint = MaterialTheme.eco.blue)
+        HelpEntryBlock(entry = HelpEntry(
+            title = "银行应用与升级", icon = EcoIcons.Phone, paragraphs = listOf(
+                "部分银行应用可能提示无障碍限制。遇到此类提示，可先在系统设置临时停用本应用的无障碍服务，再打开银行应用；停用期间支付页面采集也会暂停。",
+                "从本项目GitHub Releases获取安装包。使用同包名、同签名的新版可覆盖安装，保留账本；**不要先卸载**。卸载会清除本机数据，通用CSV不包含本应用完整设置和恢复信息。",
+            )), tint = MaterialTheme.eco.blue)
+        SettingsNote("如需反馈，请保留对应支付时间、金额与诊断记录；手机上的权限、文件保存和支付兼容性需以实际使用结果为准。")
     }
 }
 
@@ -213,8 +160,6 @@ private data class HelpEntry(
     val title: String,
     val icon: ImageVector,
     val paragraphs: List<String>,
-    /** 是否在正文前插入首页预算环示意图 */
-    val showRing: Boolean = false,
 )
 
 // ---------- 条目 ----------
@@ -237,10 +182,6 @@ private fun HelpEntryBlock(entry: HelpEntry, tint: Color) {
             Spacer(Modifier.width(8.dp))
             Text(entry.title, style = HelpTitle, color = c.ink, maxLines = 1)
         }
-        if (entry.showRing) {
-            Spacer(Modifier.height(12.dp))
-            HelpRingImage()
-        }
         entry.paragraphs.forEach { paragraph ->
             Spacer(Modifier.height(12.dp))
             HelpText(paragraph)
@@ -251,19 +192,6 @@ private fun HelpEntryBlock(entry: HelpEntry, tint: Color) {
 
 /** 条目之间的纵向间隔：正文段落 12dp，条目之间再放大一档，分段更明确 */
 private val ENTRY_GAP = 24.dp
-
-/** 首页预算环示意图（原图来自 docs/说明/image.png，白底截图，只做圆角裁切，不加卡片描边） */
-@Composable
-private fun HelpRingImage() {
-    Image(
-        painter = painterResource(R.drawable.help_budget_ring),
-        contentDescription = "首页预算环：内圆环剩余天数，外圆环剩余预算",
-        contentScale = ContentScale.Fit,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp)),
-    )
-}
 
 /**
  * 正文：`term` → 主色浅底 + 深色字；**强调** → 暖金浅底 + 加粗深字。
@@ -295,35 +223,4 @@ private fun HelpText(text: String) {
         }
     }
     Text(annotated, style = HelpBody, color = c.muted)
-}
-
-/** 推荐口径提示：不加卡片，用暖金浅底整段标注（与「设置」卡固定暖金同源） */
-@Composable
-private fun HelpCallout(text: String) {
-    val c = MaterialTheme.eco
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(top = 2.dp, bottom = ENTRY_GAP),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Icon(
-            EcoIcons.Warning,
-            contentDescription = null,
-            tint = c.amber,
-            modifier = Modifier
-                .padding(top = 3.dp)
-                .size(14.dp),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            buildAnnotatedString {
-                withStyle(SpanStyle(background = c.amberSoft, color = c.ink2, fontWeight = FontWeight.W700)) {
-                    append(text)
-                }
-            },
-            style = HelpBody,
-            color = c.ink2,
-        )
-    }
 }

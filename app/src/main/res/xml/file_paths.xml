@@ -2,6 +2,7 @@
 <!-- 应用内更新 APK 的下载目录（AppUpdate.downloadApk 写到 getExternalFilesDir/update，
      外部存储不可用时回退内部 files/update，两处都要声明） -->
 <paths>
+    <cache-path name="diagnostic_exports" path="diagnostic-exports/" />
     <external-files-path
         name="update_external"
         path="update/" />

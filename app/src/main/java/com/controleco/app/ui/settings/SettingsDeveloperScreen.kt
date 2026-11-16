@@ -39,12 +39,14 @@ fun SettingsDeveloperScreen(
     onBack: () -> Unit,
     onOpenCaptureLog: () -> Unit,
     onOpenCaptureTrace: () -> Unit,
+    onOpenDiagnostics: () -> Unit = {},
 ) {
     val lastCaptureAt by vm.lastCaptureAt.collectAsStateWithLifecycle()
     val debugCaptureAll by vm.debugCaptureAll.collectAsStateWithLifecycle()
     val debugCaptureAllPages by vm.debugCaptureAllPages.collectAsStateWithLifecycle()
     val traceEnabled by vm.traceEnabled.collectAsStateWithLifecycle()
     val traceCount by vm.traceCount.collectAsStateWithLifecycle()
+    val diagnostic by com.controleco.app.diagnostics.CaptureDiagnostics.state.collectAsStateWithLifecycle()
 
     fun toast(): (String) -> Unit = { message -> EcoToast.show(message, EcoPillTone.Blue) }
 
@@ -74,6 +76,11 @@ fun SettingsDeveloperScreen(
 
         SettingsSection(title = "日志与诊断", aside = "DIAGNOSTICS")
         SettingsPane {
+            SettingsRow(title = "记账诊断", subtitle = "连续记录 7 天，一键导出排查漏记", icon = EcoIcons.File,
+                iconTint = MaterialTheme.eco.blue,
+                trail = if (diagnostic.enabled) "记录中" else "未开启", trailColor = MaterialTheme.eco.blueDeep,
+                showChevron = true, onClick = onOpenDiagnostics)
+            SettingsDivider()
             SettingsRow(
                 title = "捕获日志",
                 icon = EcoIcons.File,

@@ -70,13 +70,13 @@ import com.controleco.app.ui.theme.eco
 fun SettingsMerchantRulesScreen(vm: LedgerViewModel, onBack: () -> Unit) {
     val rules by vm.merchantRules.collectAsStateWithLifecycle(initialValue = emptyList())
     val categories by vm.categories.collectAsStateWithLifecycle()
-    val accounts by vm.accounts.collectAsStateWithLifecycle()
+    val associatedCounts by vm.merchantAssociatedCounts.collectAsStateWithLifecycle()
     var clearAsk by remember { mutableStateOf(false) }
     var editorOpen by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<MerchantRuleEntity?>(null) }
 
     val categoryNames = remember(categories) { categories.associate { it.id to it.name } }
-    val accountNames = remember(accounts) { accounts.associate { it.id to it.name } }
+
     // 规则本身已是「最近在前」，这里再按更新时间兜底，避免 DAO 排序变化打乱展示
     val sorted = remember(rules) { rules.sortedByDescending { it.updatedAt } }
 
@@ -126,7 +126,7 @@ fun SettingsMerchantRulesScreen(vm: LedgerViewModel, onBack: () -> Unit) {
                         MerchantRuleRow(
                             rule = rule,
                             categoryName = categoryNames[rule.categoryId] ?: "已删除分类",
-                            accountName = rule.accountId?.let { accountNames[it] ?: "已删除账户" },
+                            associatedCount = associatedCounts[rule.id] ?: 0,
                             onEdit = { editing = rule; editorOpen = true },
                             onDelete = { vm.deleteMerchantRule(rule.id) },
                         )
@@ -170,7 +170,7 @@ fun SettingsMerchantRulesScreen(vm: LedgerViewModel, onBack: () -> Unit) {
 private fun MerchantRuleRow(
     rule: MerchantRuleEntity,
     categoryName: String,
-    accountName: String?,
+    associatedCount: Int,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -205,11 +205,7 @@ private fun MerchantRuleRow(
                     withStyle(SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.W700)) {
                         append(categoryName)
                     }
-                    if (accountName != null) {
-                        append(" / ")
-                        append(accountName)
-                    }
-                    append(" / 命中 ${rule.hits} 次")
+                    append(" / 关联账单 ${associatedCount} 笔")
                 },
                 style = EcoType.RowSub.copy(fontSize = 8.5.sp),
                 color = c.muted,

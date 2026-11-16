@@ -558,7 +558,7 @@ internal fun ConfirmCardContent(
                         if (state.canSubmit) {
                             "关闭卡片会按当前值入账；点「忽略」这笔不记账。"
                         } else {
-                            "填齐金额/分类/账户后关闭卡片即入账；点「忽略」不记账。"
+                            "填齐金额和分类后关闭卡片即入账；点「忽略」不记账。"
                         },
                         style = EcoType.PageNote,
                         color = c.quiet,
@@ -628,29 +628,7 @@ internal fun ConfirmCardContent(
                             )
                         },
                     )
-                    ConfirmSelect(
-                        label = "账户",
-                        value = selectedAccount?.name ?: "请选择",
-                        expanded = expandedSelector == SelectorTarget.Account,
-                        onClick = {
-                            expandedSelector = if (expandedSelector == SelectorTarget.Account) {
-                                SelectorTarget.None
-                            } else {
-                                SelectorTarget.Account
-                            }
-                            onUserActivity()
-                        },
-                        modifier = Modifier.weight(1.18f),
-                        leading = {
-                            EcoIconTile(
-                                icon = EcoIcons.Wallet,
-                                tint = c.blue,
-                                size = 24.dp,
-                                radius = 8.dp,
-                                iconSize = 13.dp,
-                            )
-                        },
-                    )
+
                 }
 
                 when (expandedSelector) {
@@ -679,37 +657,14 @@ internal fun ConfirmCardContent(
                         }
                     }
 
-                    SelectorTarget.Account -> {
-                        if (state.accounts.isEmpty()) {
-                            Text(
-                                "暂无账户",
-                                style = EcoType.PageNote,
-                                color = c.quiet,
-                                modifier = Modifier.padding(top = 8.dp),
-                            )
-                        } else {
-                            ChipStrip {
-                                state.accounts.forEach { account ->
-                                    AccountChip(
-                                        account = account,
-                                        selected = account.id == state.accountId,
-                                        onClick = {
-                                            state.selectAccount(account.id)
-                                            expandedSelector = SelectorTarget.None
-                                            onUserActivity()
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    SelectorTarget.Account -> Unit
 
                     SelectorTarget.None -> Unit
                 }
 
                 if (showInvalid && !state.canSubmit) {
                     Text(
-                        "先补齐金额、分类和账户",
+                        "先补齐金额和分类",
                         style = EcoType.PageNote,
                         color = c.amber,
                         modifier = Modifier.padding(top = 8.dp),

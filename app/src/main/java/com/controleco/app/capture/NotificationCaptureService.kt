@@ -1,7 +1,6 @@
 package com.controleco.app.capture
 
 import android.app.Notification
-import android.content.ComponentName
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.controleco.app.BuildConfig
@@ -15,41 +14,23 @@ import com.controleco.app.util.AppLog
  */
 class NotificationCaptureService : NotificationListenerService() {
 
-    /**
-     * 分级重连的延迟档位：0 / 1.5s / 6s——进程被杀后系统未必自动重连，
-     * 多打几拍把监听拉回来（`requestRebind` 是官方允许的软重连方式，不做禁用/启用组件的硬重启）。
-     */
-    private val rebindHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private var rebindAttempt = 0
-
     override fun onListenerConnected() {
         super.onListenerConnected()
-        rebindAttempt = 0
         CaptureCenter.markConnected(true)
         CaptureCenter.onListenerHealthy()
+        NotificationListenerRecovery.checkNow()
     }
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         CaptureCenter.markConnected(false)
-        AppLog.w("Ntf", "listener disconnected, requesting rebind (attempt=${rebindAttempt + 1})")
-        scheduleStaggeredRebind()
+        NotificationListenerRecovery.checkNow()
     }
 
-    private fun scheduleStaggeredRebind() {
-        val delays = REBIND_DELAYS
-        if (rebindAttempt >= delays.size) {
-            AppLog.w("Ntf", "rebind attempts exhausted (${delays.size})")
-            return
-        }
-        val delay = delays[rebindAttempt]
-        rebindAttempt++
-        rebindHandler.postDelayed({
-            if (CaptureCenter.connected.value) return@postDelayed
-            AppLog.i("Ntf", "rebind attempt #$rebindAttempt delay=$delay")
-            runCatching { requestRebind(ComponentName(this, NotificationCaptureService::class.java)) }
-            scheduleStaggeredRebind()
-        }, delay)
+    override fun onDestroy() {
+        CaptureCenter.markConnected(false)
+        NotificationListenerRecovery.checkNow()
+        super.onDestroy()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
@@ -134,8 +115,4 @@ class NotificationCaptureService : NotificationListenerService() {
         )
     }
 
-    private companion object {
-        /** 分级重连延迟档位（毫秒）：立刻 / 1.5s / 6s */
-        val REBIND_DELAYS = longArrayOf(0L, 1_500L, 6_000L)
-    }
 }

@@ -50,6 +50,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -110,6 +113,7 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
     var showPicker by remember { mutableStateOf(false) }
     val totals by vm.periodTotals.collectAsStateWithLifecycle()
     val byCategory by vm.periodCategorySums.collectAsStateWithLifecycle()
+    val budgetByCategory by vm.periodBudgetCategorySums.collectAsStateWithLifecycle()
     val rows by vm.periodRows.collectAsStateWithLifecycle()
     val spendingTotal by vm.periodSpendingTotal.collectAsStateWithLifecycle()
     val categoryBudgets by vm.categoryBudgets.collectAsStateWithLifecycle()
@@ -124,6 +128,7 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
     val rowsReady = rows ?: return
     val totalsReady = totals ?: return
     val byCategoryReady = byCategory ?: return
+    val budgetUsedByName = (budgetByCategory ?: return).associate { it.categoryName to it.totalCents }
     val spendingReady = spendingTotal ?: return
 
     val expense = totalsReady.firstOrNull { it.type == TxType.EXPENSE }?.totalCents ?: 0L
@@ -202,7 +207,7 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
                 // 点页面上任意空白处 = 取消圆环选中（点环 / 点图例行会被它们自己接住）
                 .pointerInput(selectedState) { detectTapGestures { selectedState.value = null } },
             // 底栏悬浮在内容之上；额外留出滚动余量，让 02 的圆环能真正吸顶
-            contentPadding = PaddingValues(bottom = ecoBottomContentPadding(extra = 180.dp)),
+            contentPadding = PaddingValues(bottom = ecoBottomContentPadding(extra = if(ratioRows.size > 5) 80.dp else 12.dp)),
         ) {
             // 与账单页共用同一个结余封面对象（同一张背景图 / 同一份 VM 状态），随内容滚动
             item(key = "cover") {
@@ -255,21 +260,14 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
 
             }
 
-            // ---- 唯一一个圆环：留在分类列表上方，向上滚动时吸顶 ----
-            stickyHeader(key = "donutSticky") {
-                Column(Modifier.fillMaxWidth().background(c.paper)) {
-                    EcoSectionHead(
-                        title = "分类预算与占比",
-                        aside = "BUDGET / ACTUAL",
-                        modifier = Modifier.padding(horizontal = 22.dp),
-                    )
-                    DonutCard(
-                        expenseCents = spendingReady,
-                        slices = slices,
-                        sliceColors = sliceColors,
-                        selected = selectedSlice,
-                        onSelect = { selectedSlice = it },
-                    )
+            // 超过5条才固定圆环；少分类不用吸顶和额外空白制造可收起空间。
+            if (ratioRows.size > 5) {
+                stickyHeader(key = "donutSticky") {
+                    StatsBudgetHeader(spendingReady, slices, sliceColors, selectedSlice) { selectedSlice = it }
+                }
+            } else {
+                item(key = "donutStatic") {
+                    StatsBudgetHeader(spendingReady, slices, sliceColors, selectedSlice) { selectedSlice = it }
                 }
             }
 
@@ -277,6 +275,7 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
             item(key = "ratio") {
                 RatioCard(
                     rows = ratioRows,
+                    budgetUsedByName = budgetUsedByName,
                     actualTotal = spendingReady,
                     budgetTotal = ratioBudget,
                     colors = sliceColors,
@@ -296,6 +295,15 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
             onDismiss = { showPicker = false },
             currentMonth = currentAccountingMonth,
         )
+    }
+}
+
+@Composable
+private fun StatsBudgetHeader(expense: Long, slices: List<CategorySlice>, colors: Map<String, Color>,
+                              selected: String?, onSelect: (String?) -> Unit) {
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.eco.paper).testTag("statsBudgetHeader")) {
+        EcoSectionHead("分类预算与占比", aside = "BUDGET / ACTUAL", modifier = Modifier.padding(horizontal = 22.dp))
+        DonutCard(expense, slices, colors, selected, onSelect)
     }
 }
 
@@ -755,6 +763,7 @@ private fun TrendCard(
 @Composable
 private fun RatioCard(
     rows: List<BudgetRatioRow>,
+    budgetUsedByName: Map<String, Long>,
     actualTotal: Long,
     budgetTotal: Long,
     colors: Map<String, Color>,
@@ -805,6 +814,7 @@ private fun RatioCard(
                     }
                     RatioListRow(
                         row = row,
+                        budgetUsedCents = budgetUsedByName[row.name] ?: 0L,
                         color = colors[row.name] ?: c.quiet,
                         actualShare = ratioPercent(row.actualCents, actualTotal),
                         budgetShare = ratioPercent(row.budgetCents, budgetTotal),
@@ -860,6 +870,7 @@ private fun RatioSide(
 @Composable
 private fun RatioListRow(
     row: BudgetRatioRow,
+    budgetUsedCents: Long,
     color: Color,
     actualShare: Float,
     budgetShare: Float,
@@ -940,6 +951,15 @@ private fun RatioListRow(
                     modifier = Modifier.width(34.dp),
                     textAlign = TextAlign.End,
                 )
+            }
+            if(row.budgetCents > 0L) {
+                val progress = (budgetUsedCents.toDouble() / row.budgetCents).toFloat().coerceIn(0f, 1f)
+                val progressColor = when { budgetUsedCents > row.budgetCents -> c.clay; progress >= .9f -> c.amber; else -> c.jade }
+                Spacer(Modifier.height(9.dp))
+                Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(c.track)
+                    .semantics { contentDescription = "${row.name}预算已用${(budgetUsedCents.toDouble() / row.budgetCents * 100).roundToInt()}%" }) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(progress).background(progressColor))
+                }
             }
         }
     }

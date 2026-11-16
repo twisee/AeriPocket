@@ -16,6 +16,10 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.sp
+import androidx.compose.material3.Checkbox
+import com.controleco.app.ui.eco.EcoFilterStrip
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -76,6 +80,9 @@ import java.time.ZoneId
 @Composable
 fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
     val accounts by vm.accounts.collectAsStateWithLifecycle()
+    val merchantRules by vm.merchantRules.collectAsStateWithLifecycle()
+    val merchantHistory by vm.merchantHistory.collectAsStateWithLifecycle()
+    var manualCategory by remember { mutableStateOf(false) }
     val allCategories by vm.categories.collectAsStateWithLifecycle()
 
     var existing by remember { mutableStateOf<TransactionEntity?>(null) }
@@ -103,7 +110,7 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
-    var rememberMerchantCategory by remember { mutableStateOf(true) }
+    var rememberMerchantCategory by remember { mutableStateOf(false) }
 
     // 编辑模式：加载完成后回填表单（仅一次）
     LaunchedEffect(existing) {
@@ -111,6 +118,7 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
             type = t.type
             amountText = Money.formatCents(t.amountCents)
             categoryId = t.categoryId
+            manualCategory = false
             accountId = t.accountId
             val local = Instant.ofEpochMilli(t.timestamp).atZone(ZoneId.systemDefault())
             date = local.toLocalDate()
@@ -132,6 +140,14 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
     }
 
     val catsOfType = categories.filter { it.type == type }
+    val suggestions = com.controleco.app.data.MerchantEntrySupport.suggestions(counterparty, type, merchantRules, categories, merchantHistory)
+    LaunchedEffect(counterparty, type, merchantRules, categories) {
+        val matched = com.controleco.app.capture.MerchantRules.categoryIdFrom(merchantRules, categories, type, counterparty, "")
+        // 打开旧账不把已有例外改回默认；用户输入另一个商户时才尝试沿用其规则。
+        if(existing == null || counterparty != existing?.counterparty || type != existing?.type) {
+            categoryId = com.controleco.app.data.MerchantEntrySupport.categoryForMerchant(manualCategory, matched, categoryId)
+        }
+    }
     val cents = Money.parseCents(amountText)
     val valid = cents != null && cents > 0L && categoryId != null && accountId != null && !saving
     val unchanged = existing?.let { record ->
@@ -179,264 +195,101 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
         }
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .imePadding(),
-    ) {
-        EcoTopBar(
-            micro = "EDIT ENTRY",
-            title = "编辑记录",
-            onBack = onBack,
-            action = {
-                if (txId > 0 && existing != null) {
-                    EcoTextAction(
-                        text = "删除",
-                        onClick = { showDeleteConfirm = true },
-                        color = c.clay,
-                    )
+    fun refund() {
+        if(saving) return
+        if(!unchanged) { EcoToast.show("请先保存修改，再操作退款"); return }
+        val refunded = (existing?.refundedCents ?: 0L) > 0L
+        saving = true
+        val done: (String?) -> Unit = { message ->
+            saving = false
+            if(message == null) { EcoToast.show(if(refunded) "已撤销退款" else "已退款"); onBack() } else error = message
+        }
+        if(refunded) vm.undoRefund(txId, done) else vm.refundExpense(txId, done)
+    }
+
+    if(txId > 0 && existing == null) {
+        Column(Modifier.fillMaxSize()) {
+            EcoTopBar(micro = "EDIT ENTRY", title = "编辑记录", onBack = onBack)
+            Text("正在读取账单…", color = c.muted, modifier = Modifier.padding(22.dp))
+        }
+        return
+    }
+    Column(Modifier.fillMaxSize().imePadding()) {
+        EcoTopBar(micro = "EDIT ENTRY", title = "编辑记录", onBack = onBack, action = {
+            if(txId > 0 && existing != null) {
+                if(existing?.type == TxType.EXPENSE && type == TxType.EXPENSE) {
+                    EcoTextAction(if((existing?.refundedCents ?: 0L) > 0L) "撤销退款" else "退款", onClick = ::refund, enabled = !saving)
+                    Spacer(Modifier.width(8.dp))
                 }
-            },
-        )
-
-        Column(
-            Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .then(if (imeVisible) Modifier else Modifier.navigationBarsPadding())
-                .verticalScroll(scroll)
-                .padding(horizontal = 22.dp),
-        ) {
-            Spacer(Modifier.height(4.dp))
-
-            // 金额卡：设计稿的圆角卡片 + 内嵌大字输入 + 底部发丝线
-            EcoPane(shape = RoundedCornerShape(20.dp), elevation = 9.dp) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp),
-                ) {
-                    TxFieldLabel("金额", color = c.quiet)
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            Money.symbol,
-                            style = TxEditCurrencyStyle,
-                            color = c.blue,
-                            modifier = Modifier.padding(bottom = 6.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        BasicTextField(
-                            value = amountText,
-                            onValueChange = {
-                                amountText = it
-                                error = null
-                            },
-                            textStyle = EcoType.EditAmount.copy(color = c.ink),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            cursorBrush = SolidColor(c.blue),
-                            modifier = Modifier.weight(1f),
-                            decorationBox = { inner ->
-                                Box {
-                                    if (amountText.isEmpty()) {
-                                        Text("0.00", style = EcoType.EditAmount, color = c.quiet)
-                                    }
-                                    inner()
-                                }
-                            },
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    EcoHairline()
-                }
+                EcoTextAction("删除", onClick = { showDeleteConfirm = true }, color = c.clay, enabled = !saving)
             }
-
-            Spacer(Modifier.height(15.dp))
-            TxSectionLabel("类型")
-            Spacer(Modifier.height(8.dp))
-            if (existing?.refundMark != null && existing?.refundMark != RefundMark.NONE) {
-                Text(if (type == TxType.EXPENSE) "支出" else "收入", style = EcoType.RowTitle, color = c.ink)
-            } else TxTypeSegmented(
-                type = type,
-                onChange = {
-                    type = it
-                    error = null
-                    // 预算口径只对支出有意义：切到收入时把两个标记一起清掉，
-                    // 否则切回支出会冒出用户看不见的旧勾选
-                    if (it == TxType.INCOME) {
-                        budgetExcluded = false
-                        aaEnabled = false
-                    }
-                },
-                modifier = Modifier.width(140.dp),
-            )
-
-            Spacer(Modifier.height(15.dp))
-            TxSectionLabel("分类")
-            Spacer(Modifier.height(8.dp))
-            if (catsOfType.isEmpty()) {
-                Text(
-                    "当前类型下还没有分类",
-                    style = EcoType.PageNote,
-                    color = c.quiet,
-                )
-            } else {
-                FlowRow(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    catsOfType.forEach { category ->
-                        TxCategoryChip(
-                            name = category.name,
-                            selected = categoryId == category.id,
-                            onClick = { categoryId = category.id },
-                            height = 33.dp,
-                        )
-                    }
-                }
+        })
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(horizontal = 22.dp)) {
+            Spacer(Modifier.height(16.dp))
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                if(existing?.refundMark != null && existing?.refundMark != RefundMark.NONE) {
+                    Text(if(type == TxType.EXPENSE) "支出" else "收入", color = c.ink)
+                } else EcoFilterStrip(options = listOf("支出", "收入"), selectedIndex = if(type == TxType.EXPENSE) 0 else 1,
+                    onSelect = { type = if(it == 0) TxType.EXPENSE else TxType.INCOME; manualCategory = false; rememberMerchantCategory = false
+                        if(type == TxType.INCOME) { budgetExcluded = false; aaEnabled = false } })
             }
-
-            if (counterparty.isNotBlank() && existing?.refundMark != RefundMark.REFUND_INCOME) {
-                com.controleco.app.ui.common.SettingsSwitchRow(
-                    title = "设为商户默认分类",
-                    subtitle = "同时更新已有账单，之后自动沿用",
-                    checked = rememberMerchantCategory,
-                    onCheckedChange = { rememberMerchantCategory = it },
-                )
-            }
-
-            Spacer(Modifier.height(15.dp))
-            TxSectionLabel("账户与日期")
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TxSelectField(
-                    value = accounts.firstOrNull { it.id == accountId }?.name ?: "",
-                    options = accounts.map { it.id to it.name },
-                    onSelect = { accountId = it },
-                    modifier = Modifier.weight(1f),
-                    label = "账户",
-                    contentDescription = "选择账户",
-                )
-                TxDateField(
-                    date = date,
-                    onPick = { date = it },
-                    modifier = Modifier.weight(1f),
-                    label = "日期",
-                )
-            }
-
-            Spacer(Modifier.height(15.dp))
-            TxSectionLabel("商户与备注")
-            Spacer(Modifier.height(8.dp))
-            EcoField(
-                label = "商户",
-                value = counterparty,
-                onValueChange = { counterparty = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = "例如：瑞幸咖啡",
-            )
-            Spacer(Modifier.height(8.dp))
-            EcoField(
-                label = "备注",
-                value = note,
-                onValueChange = { note = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = "可选",
-            )
-
-            // 预算口径：只对支出显示（收入不进预算，没有这两个标记的意义）
-            if (type == TxType.EXPENSE) {
-                Spacer(Modifier.height(15.dp))
-                TxSectionLabel("预算")
-                Spacer(Modifier.height(8.dp))
-                EcoPane(
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = 4.dp,
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp),
-                ) {
-                    TxBudgetOptions(
-                        budgetExcluded = budgetExcluded,
-                        onBudgetExcludedChange = {
-                            budgetExcluded = it
-                            error = null
-                        },
-                        aaEnabled = aaEnabled,
-                        onAaEnabledChange = { on ->
-                            aaEnabled = on
-                            // 打开 AA 时给一个合法默认人数，避免输入框空着还要用户自己填
-                            if (on && BudgetShare.parseShares(aaSharesText) == null) {
-                                aaSharesText = BudgetShare.DEFAULT_AA_SHARES.toString()
-                            }
-                            error = null
-                        },
-                        sharesText = aaSharesText,
-                        onSharesTextChange = {
-                            aaSharesText = it
-                            error = null
-                        },
-                    )
-                }
-            }
-
-            val message = error
-            if (message != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    message,
-                    style = TxErrorStyle,
-                    color = c.clay,
-                    modifier = Modifier.padding(start = 2.dp),
-                )
-            }
-
-            if (existing?.type == TxType.EXPENSE && type == TxType.EXPENSE) {
-                Spacer(Modifier.height(18.dp))
-                val refunded = (existing?.refundedCents ?: 0) > 0
-                EcoGhostButton(
-                    text = if (refunded) "撤销退款" else "退款该账单",
-                    enabled = unchanged && !saving,
-                    height = 46.dp,
-                    onClick = {
-                        if (saving) return@EcoGhostButton
-                        saving = true
-                        val done: (String?) -> Unit = { message ->
-                            saving = false
-                            if (message == null) {
-                                EcoToast.show(if (refunded) "已撤销退款" else "已退款")
-                                onBack()
-                            } else error = message
-                        }
-                        if (refunded) vm.undoRefund(txId, done) else vm.refundExpense(txId, done)
-                    },
-                )
+            Spacer(Modifier.height(14.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.Center) {
+                Text(Money.symbol, fontSize = 23.sp, color = c.muted, modifier = Modifier.padding(bottom = 7.dp, end = 5.dp))
+                BasicTextField(value = amountText, onValueChange = { amountText = it; error = null }, singleLine = true,
+                    textStyle = EcoType.EditAmount.copy(fontSize = 48.sp, color = c.ink, textAlign = TextAlign.Center),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), cursorBrush = SolidColor(c.blue),
+                    modifier = Modifier.width(240.dp))
             }
             Spacer(Modifier.height(18.dp))
-            EcoPrimaryButton(
-                text = if (txId > 0) "保存修改" else "保存",
-                onClick = ::save,
-                enabled = valid,
-                height = 46.dp,
-            )
-
-            if (txId > 0 && existing != null) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "删除这笔记录",
-                    style = TxDeleteLinkStyle,
-                    color = c.clay,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .ecoPressable(scaleTo = 0.97f) { showDeleteConfirm = true }
-                        .padding(vertical = 8.dp),
-                )
+            EntryDateTime(date, timeOfDay, { date = it }, { timeOfDay = it })
+            Spacer(Modifier.height(18.dp))
+            EntryCategories(catsOfType, categoryId) { categoryId = it; manualCategory = true; rememberMerchantCategory = false }
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                EntryMerchant(counterparty, { counterparty = it; rememberMerchantCategory = false }, suggestions, { suggestion ->
+                    counterparty = suggestion.name
+                    rememberMerchantCategory = false
+                    categoryId = com.controleco.app.data.MerchantEntrySupport.categoryForMerchant(manualCategory, suggestion.categoryId, categoryId)
+                }, Modifier.weight(1f))
+                EcoField("备注", note, { note = it }, Modifier.weight(1f), placeholder = "可不填", minHeight = 36.dp)
             }
-
-            Spacer(Modifier.height(26.dp))
+            if(counterparty.isNotBlank() && existing?.refundMark != RefundMark.REFUND_INCOME) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(rememberMerchantCategory, { rememberMerchantCategory = it }, modifier = Modifier.size(31.dp))
+                    Text("设为该商户的默认分类", fontSize = 11.sp, color = c.muted)
+                }
+            }
+            if(type == TxType.EXPENSE) {
+                Spacer(Modifier.height(14.dp))
+                Text("预算选项", fontSize = 12.sp, color = c.muted)
+                Spacer(Modifier.height(8.dp))
+                EcoPane(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), elevation = 3.dp,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 3.dp)) {
+                    TxBudgetOptions(budgetExcluded, { budgetExcluded = it }, aaEnabled, {
+                        aaEnabled = it
+                        if(it && BudgetShare.parseShares(aaSharesText) == null) aaSharesText = BudgetShare.DEFAULT_AA_SHARES.toString()
+                    }, aaSharesText, { aaSharesText = it }, compact = true)
+                }
+            }
+            existing?.let { record ->
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Text("来源", fontSize = 10.sp, color = c.quiet)
+                    Spacer(Modifier.weight(1f))
+                    Text(when(record.source) { com.controleco.app.data.db.TxSource.MANUAL -> "手动记账"
+                        com.controleco.app.data.db.TxSource.WECHAT -> "微信"
+                        com.controleco.app.data.db.TxSource.ALIPAY -> "支付宝"
+                        com.controleco.app.data.db.TxSource.BANK -> "银行"
+                        else -> "自动记账" }, fontSize = 10.sp, color = c.muted)
+                }
+            }
+            error?.let { Text(it, color = c.clay, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp)) }
+            Spacer(Modifier.height(12.dp))
         }
+        EcoPrimaryButton(if(txId > 0) "保存修改" else "保存", onClick = ::save, enabled = valid,
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 13.dp))
+        Spacer(Modifier.navigationBarsPadding())
     }
 
     if (showDeleteConfirm && existing != null) {

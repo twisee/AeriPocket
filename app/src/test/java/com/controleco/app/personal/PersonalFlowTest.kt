@@ -54,7 +54,7 @@ class PersonalFlowTest {
         val dining=runBlocking { db.categoryDao().getAll().first { it.name=="餐饮" }.id }
         var saved=false;var message:String?=null
         ui.runOnIdle { vm.saveTransaction(old.id,old.type,old.amountCents,dining,old.accountId,old.timestamp,old.note,old.counterparty,
-            onResult={ message=it;saved=true }) }
+            rememberMerchantCategory=true, onResult={ message=it;saved=true }) }
         ui.waitUntil(10000) { org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();saved };assertNull(message)
         commit(ParsedBill(BillSource.ALIPAY,listOf(row.copy(externalId="SYNTHETIC-SCHOOL-2",timestamp=2000)),0,0,0))
         val future=runBlocking { db.transactionDao().getAll().first { it.externalId=="SYNTHETIC-SCHOOL-2" } }

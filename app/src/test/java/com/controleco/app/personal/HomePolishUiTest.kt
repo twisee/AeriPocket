@@ -117,9 +117,9 @@ class HomePolishUiTest {
         } }
         waitTag("aliceBalanceCard"); waitTag("aliceFloralArtwork")
         ui.onNodeWithText("¥").performClick()
-        ui.onNodeWithText("账户").performClick()
+        ui.onNodeWithText("账户").assertDoesNotExist()
         ui.onNodeWithContentDescription("设置本月预算").performClick()
-        ui.runOnIdle { assertEquals(1, currencyClicks); assertEquals(1, accountClicks); assertEquals(1, budgetClicks); custom = true }
+        ui.runOnIdle { assertEquals(1, currencyClicks); assertEquals(0, accountClicks); assertEquals(1, budgetClicks); custom = true }
         ui.onNodeWithTag("aliceBalanceCard").assertDoesNotExist()
         ui.onNodeWithTag("aliceBudgetCard").assertExists()
         ui.onNodeWithContentDescription("更换结余卡背景").assertExists()

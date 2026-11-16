@@ -32,6 +32,8 @@ class AccBookApp : Application() {
         CoverStyleStore.init(this)
         AnimationPrefs.init(this)
         CaptureCenter.init(this)
+        com.controleco.app.diagnostics.CaptureDiagnostics.init(this)
+        com.controleco.app.capture.NotificationListenerRecovery.start(this)
         // 覆盖安装后提示复查通知使用权（广播可能被系统吞掉，冷启动再兜一次）
         CaptureCenter.checkAppUpdated(BuildConfig.VERSION_CODE)
         applicationScope.launch { DefaultData.seedIfNeeded(db) }

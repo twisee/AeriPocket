@@ -424,31 +424,6 @@ private fun ImportPreviewStage(
 
             EcoRowDivider(inset = 14.dp)
 
-            Column(Modifier.padding(14.dp)) {
-                Text("记入账户", style = EcoType.FieldLabel, color = c.muted)
-                Spacer(Modifier.height(7.dp))
-                if (accounts.isEmpty()) {
-                    Text(
-                        "暂无账户，请先在账户管理中添加",
-                        style = EcoType.PageNote,
-                        color = c.amber,
-                    )
-                } else {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        accounts.forEach { acc ->
-                            EcoChip(
-                                text = acc.name,
-                                selected = accountId == acc.id,
-                                onClick = { onSelectAccount(acc.id) },
-                            )
-                        }
-                    }
-                }
-            }
-
             if (bill.rows.isEmpty()) {
                 EcoRowDivider(inset = 14.dp)
                 EcoEmpty(
@@ -575,15 +550,7 @@ private fun ImportDoneStage(
                 color = c.muted,
                 textAlign = TextAlign.Center,
             )
-            if (accountName != null) {
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    "已记入「$accountName」。",
-                    style = EcoType.PageNote.copy(textAlign = TextAlign.Center),
-                    color = c.muted,
-                    textAlign = TextAlign.Center,
-                )
-            }
+
         }
     }
 

@@ -45,6 +45,7 @@ import com.controleco.app.data.db.TxSource
 import com.controleco.app.data.db.TxType
 import com.controleco.app.util.AppLog
 import com.controleco.app.util.Money
+import com.controleco.app.diagnostics.CaptureDiagnostics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -1228,6 +1229,7 @@ object CaptureCenter {
 
     fun markConnected(connected: Boolean) {
         _connected.value = connected
+        CaptureDiagnostics.checkpoint("通知监听${if (connected) "已连接" else "已断开"}")
         AppLog.i("Ntf", "listener connected=$connected")
     }
 
@@ -1237,7 +1239,9 @@ object CaptureCenter {
      */
     fun markAliveFromNotification() {
         if (!_connected.value) {
-            _connected.value = true
+            markConnected(true)
+            onListenerHealthy()
+            NotificationListenerRecovery.checkNow()
             AppLog.i("Ntf", "listener self-healed (notification received)")
         }
     }
@@ -1281,6 +1285,7 @@ object CaptureCenter {
 
     fun markA11yConnected(connected: Boolean) {
         _a11yConnected.value = connected
+        CaptureDiagnostics.checkpoint("无障碍服务${if (connected) "已连接" else "已断开"}")
         if (!connected) foregroundPackage = null
         AppLog.i("Page", "a11y service connected=$connected")
     }
@@ -1439,6 +1444,16 @@ object CaptureCenter {
         dedupKey: String,
         outcome: TraceOutcome,
     ) {
+        if (CaptureDiagnostics.enabled() && (channel == CaptureChannel.SMS || CaptureDiagnostics.scopedPackage(packageName))) {
+            CaptureDiagnostics.record("outcome", packageName, when (outcome) {
+                TraceOutcome.AUTO_ENTRY -> "已入账"
+                TraceOutcome.PENDING, TraceOutcome.REFUND_NOTICE -> "待确认"
+                TraceOutcome.SKIPPED_DUPLICATE -> "重复或已处理"
+                else -> "已合并"
+            }, "$channel · $matchedRule", mapOf("channel" to channel.name, "rule" to matchedRule,
+                "amountCents" to amountCents.toString(), "type" to type?.name.orEmpty(), "merchant" to counterparty,
+                "note" to note, "identity" to CaptureDiagnostics.identity(dedupKey)))
+        }
         if (!isTraceEnabled()) return
         runCatching {
             traceDao.insert(
@@ -1490,6 +1505,16 @@ object CaptureCenter {
 
         if (!initialized || packageName == appContext.packageName) return
         if (title.isBlank() && text.isBlank() && bigText.isBlank()) return
+        if (CaptureDiagnostics.enabled() && CaptureDiagnostics.scopedPackage(packageName)) {
+            val paymentLike = listOf("支付", "付款", "扣款", "消费", "收款", "到账", "退款", "交易", "账单", "扣费").any {
+                (title + text + bigText).contains(it)
+            }
+            val privateChat = packageName == NotificationRules.WECHAT && !title.contains("微信支付") && !text.startsWith("微信支付")
+            CaptureDiagnostics.record("notification", packageName, "已捕获",
+                if (paymentLike && !privateChat) "收到系统通知，等待规则解析" else "非支付通知，仅记录到达状态，正文未保留",
+                if (paymentLike && !privateChat) mapOf("title" to title, "text" to text, "bigText" to bigText,
+                    "sourceTime" to postTime.toString(), "identity" to CaptureDiagnostics.identity(notificationKey.orEmpty())) else emptyMap())
+        }
 
         // debug 构建全量 Logcat（用户要求：便于真实样本测试与排查）
         AppLog.d("Ntf", "onPosted pkg=$packageName title=[$title] text=[$text] bigText=[$bigText] postTime=$postTime")
@@ -1569,10 +1594,16 @@ object CaptureCenter {
                     AppLog.w("Ntf", "notification time abnormal postTime=$postTime -> $sourceAt pkg=$packageName")
                 }
 
-                if (!interested || !isCaptureEnabled()) return@launch
+                if (!interested || !isCaptureEnabled()) {
+                    if (CaptureDiagnostics.scopedPackage(packageName)) CaptureDiagnostics.record("notification", packageName,
+                        "已跳过", "采集总开关关闭或来源未启用")
+                    return@launch
+                }
 
                 val parsed = NotificationRules.parse(packageName, title, text, bigText, sourceAt)
                 if (parsed == null) {
+                    if (CaptureDiagnostics.scopedPackage(packageName)) CaptureDiagnostics.record("notification", packageName,
+                        "未匹配", "未匹配通知金额规则；继续检查无金额退款或金额补录规则")
                     AppLog.d("Ntf", "no rule matched pkg=$packageName title=[$title] text=[$text]")
                     if (interested && isCaptureEnabled()) {
                         // 无金额的退款到账通知（微信折叠通知实测样本）→ 转退款待处理提醒
@@ -1598,6 +1629,12 @@ object CaptureCenter {
                     notificationKey, eventStamp, parsed.type, parsed.isRefund,
                 )
                 val dedupKey = dedupKeyWithIdentity(parsed.dedupKey, notificationIdentity)
+                if (CaptureDiagnostics.enabled() && CaptureDiagnostics.scopedPackage(packageName)) {
+                    CaptureDiagnostics.record("notification_parse", packageName, "已解析", parsed.ruleName,
+                        mapOf("identity" to CaptureDiagnostics.identity(dedupKey),
+                            "notificationIdentity" to CaptureDiagnostics.identity(notificationKey.orEmpty()),
+                            "sourceTime" to sourceAt.toString(), "amountCents" to parsed.amountCents.toString()))
+                }
                 // 同一条通知的旧条目可能已经跨过 10s 窗口：按持久化实例身份直接认作重复。
                 // 但金额/方向不同说明这是同一条通知被更新成了另一笔（或待补金额已回填），
                 // 不能因为实例相同就吞掉——继续走融合/入队。
@@ -1949,6 +1986,8 @@ object CaptureCenter {
             return
         }
         val sourceKey = NotificationRules.SMS_SOURCE_PREFIX + (bankName ?: sender.takeLast(5))
+        CaptureDiagnostics.record("sms", sourceKey, "已捕获", "收到银行动账短信，等待规则解析",
+            mapOf("text" to normalized, "sourceTime" to eventTime.toString(), "sender" to sender))
         // 先落原始快照（只有银行侧短信会走到这里）；未匹配的银行短信留在捕获日志里供扩规则
         val rawId = captureDao.insert(
             CapturedNotificationEntity(
@@ -1961,6 +2000,7 @@ object CaptureCenter {
         )
         val ledger = BankLedgerRules.parse(normalized, sourceKey, "短信", eventTime, bankName)
         if (ledger == null) {
+            CaptureDiagnostics.record("sms", sourceKey, "未匹配", "银行短信未匹配动账金额规则")
             AppLog.i("Sms", "bank sms not matched (#$rawId) sender=$sender text=[${normalized.take(160)}]")
             return
         }
@@ -2975,6 +3015,29 @@ object CaptureCenter {
         val flow = flows.flow(packageName)
         val result = PageParserRegistry.parse(snapshot, flow)
         val candidate = (result as? PageParseResult.Candidate)?.candidate
+        if (CaptureDiagnostics.enabled() && CaptureDiagnostics.scopedPackage(packageName)) {
+            val reason = when (result) {
+                is PageParseResult.Candidate -> "${candidate?.ruleName}：已提取金额，等待去重与入账判断"
+                is PageParseResult.SceneOnly -> result.reason
+                PageParseResult.NotATradePage -> if (packageName == NotificationRules.ALIPAY &&
+                    snapshot.lines.take(2).none { it.trim().startsWith("支付成功") })
+                    "支付宝：前两个有效文字节点没有以‘支付成功’开头的标题（首页消息预览不会生成交易）"
+                    else "未符合当前应用的支付结果页规则（如首页、列表、标题位置或旧详情页）"
+            }
+            // Avoid retaining personal chat/home-screen content unrelated to payment.
+            val privateChat = packageName == NotificationRules.WECHAT && com.controleco.app.capture.page.PageParseSupport.looksLikeChatPage(snapshot)
+            val paymentLike = !privateChat && (candidate != null || (result is PageParseResult.SceneOnly) ||
+                listOf("支付", "付款", "实付", "收款", "到账", "扣款", "订单").any { snapshot.joined.contains(it) })
+            CaptureDiagnostics.record("page", packageName, if (candidate == null) "未匹配" else "已解析",
+                reason, mapOf("eventId" to CaptureDiagnostics.identity("${snapshot.captureTime}|${snapshot.fingerprint}"), "flowId" to CaptureDiagnostics.identity(flow.flowInstanceId),
+                    "identity" to if (candidate == null) "" else CaptureDiagnostics.identity(dedupKeyWithIdentity(candidate.dedupKey, flow.flowInstanceId)),
+                    "amountCents" to candidate?.amountCents?.toString().orEmpty(),
+                    "activity" to snapshot.activity, "nodeCount" to snapshot.nodes.size.toString(),
+                    "text" to if (paymentLike) snapshot.lines.joinToString(" | ") else "非支付相关页面，正文未保留",
+                    "nodeStructure" to if (paymentLike) snapshot.nodes.take(120).joinToString("\n") {
+                        "${it.depth}/${it.parentIndex} id=${it.viewId} text=${it.text} desc=${it.contentDescription}"
+                    } else ""))
+        }
         // 用户离开了上一笔的结果页（桌面/聊天/列表/其它页面）：之后再次出现同一结果页才可能是新的一笔。
         // 只在终结态生效，重复采样同一结果页不会触发新流程（见 PageFlow.markEmitted）。
         if (result is PageParseResult.NotATradePage ||
@@ -3030,11 +3093,12 @@ object CaptureCenter {
             ),
         )
         if (candidate == null) {
-            captureDao.updateMatch(rawId, "页面快照", false)
+            captureDao.updateMatch(rawId, "", false)
             return
         }
 
         if (!isA11yCaptureEnabled()) {
+            CaptureDiagnostics.record("page", packageName, "已跳过", "页面采集关闭；当前为调试采样，不会入队或入账")
             // 采样模式（页面抓取关 + 调试全量开）：只留证据，不入队不弹窗
             captureDao.updateMatch(rawId, candidate.ruleName, false)
             AppLog.i("Page", "skip enqueue（设置页「自动记录支付页面」开关关闭）${candidate.ruleName}")

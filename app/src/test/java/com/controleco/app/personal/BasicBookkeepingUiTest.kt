@@ -56,7 +56,7 @@ class BasicBookkeepingUiTest {
         ui.onNodeWithText("餐饮").performClick();waitText("编辑记录")
         ui.onAllNodes(hasSetTextAction()).onFirst().performTextReplacement("17.80")
         ui.onAllNodes(hasSetTextAction())[1].performTextReplacement("手动演示午餐")
-        ui.onNodeWithText("保存修改").performScrollTo().performClick()
+        ui.onNodeWithText("保存修改").assertIsDisplayed().performClick()
         waitFor { runBlocking { dao.getById(expense.id)?.amountCents==1780L } }
         waitText("手动演示午餐")
         ui.onNodeWithContentDescription("记一笔").performClick();waitText("记一笔")

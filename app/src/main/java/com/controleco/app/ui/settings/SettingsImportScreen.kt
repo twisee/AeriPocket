@@ -21,8 +21,9 @@ import com.controleco.app.ui.theme.eco
 fun SettingsImportScreen(
     onBack: () -> Unit,
     onImport: () -> Unit,
+    onExport: () -> Unit = {},
 ) {
-    SettingsPage(micro = "IMPORT", title = "账单导入", onBack = onBack) {
+    SettingsPage(micro = "BILLS", title = "账单导入与导出", onBack = onBack) {
         SettingsSection(title = "导入", aside = "IMPORT")
         SettingsPane {
             SettingsRow(
@@ -35,7 +36,12 @@ fun SettingsImportScreen(
             )
         }
 
-        SettingsSection(title = "导出账单", aside = "HOW TO")
+        SettingsSection(title = "导出", aside = "EXPORT")
+        SettingsPane {
+            SettingsRow(title = "导出账单", subtitle = "通用 CSV · 全部或指定时间段", icon = EcoIcons.Download,
+                iconTint = MaterialTheme.eco.blue, showChevron = true, onClick = onExport)
+        }
+        SettingsSection(title = "获取微信 / 支付宝账单", aside = "HOW TO")
         SettingsPane {
             SettingsRow(
                 title = "微信",

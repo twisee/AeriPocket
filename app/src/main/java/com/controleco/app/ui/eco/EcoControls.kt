@@ -40,6 +40,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -602,6 +604,7 @@ fun EcoField(
     supporting: String? = null,
     isError: Boolean = false,
     enabled: Boolean = true,
+    onFocused: (Boolean) -> Unit = {},
 ) {
     val c = MaterialTheme.eco
     var focused by remember { mutableStateOf(false) }
@@ -636,7 +639,8 @@ fun EcoField(
                 cursorBrush = SolidColor(c.blue),
                 modifier = Modifier
                     .weight(1f)
-                    .onFocusChanged { focused = it.isFocused },
+                    .onFocusChanged { focused = it.isFocused; onFocused(it.isFocused) }
+                    .semantics { contentDescription = "输入$label" },
                 decorationBox = { inner ->
                     Box {
                         if (value.isEmpty()) {

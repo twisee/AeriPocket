@@ -39,6 +39,8 @@ data class TypeTotalRow(
     val totalCents: Long,
 )
 
+data class MerchantBillKey(val type: TxType, val counterparty: String, val note: String)
+
 data class CategorySumRow(
     val categoryId: Long,
     val categoryName: String,
@@ -54,6 +56,10 @@ data class AccountBalanceRow(
 
 @Dao
 interface TransactionDao {
+    @Query("SELECT * FROM transactions WHERE refundMark != 'REFUND_INCOME' AND timestamp >= :start AND timestamp < :end ORDER BY timestamp DESC, id DESC")
+    suspend fun rowsForCsv(start: Long, end: Long): List<TransactionEntity>
+    @Query("SELECT type, counterparty, note FROM transactions WHERE refundMark != 'REFUND_INCOME' ORDER BY timestamp DESC, id DESC")
+    fun observeMerchantBillKeys(): Flow<List<MerchantBillKey>>
     @Query("SELECT MIN(timestamp) FROM transactions WHERE refundMark != 'REFUND_INCOME'")
     fun observeEarliestTimestamp(): Flow<Long?>
 

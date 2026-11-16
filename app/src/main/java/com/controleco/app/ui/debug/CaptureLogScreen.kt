@@ -468,12 +468,14 @@ private fun captureStatusText(granted: Boolean, connected: Boolean, a11yConnecte
 }
 
 private fun captureStatusLabel(row: CapturedNotificationEntity): String = when {
-    row.queued -> "待确认"
-    row.matchedRule.isNotBlank() -> "已识别"
+    row.source == CaptureChannel.A11Y && row.matchedRule in listOf("", "页面快照") -> "仅捕获页面"
+    row.queued -> "已提交处理"
+    row.matchedRule.isNotBlank() -> "已解析"
     else -> "未匹配"
 }
 
 private fun captureStatusTone(row: CapturedNotificationEntity): EcoPillTone = when {
+    row.source == CaptureChannel.A11Y && row.matchedRule in listOf("", "页面快照") -> EcoPillTone.Neutral
     row.queued -> EcoPillTone.Warn
     row.matchedRule.isNotBlank() -> EcoPillTone.Good
     else -> EcoPillTone.Neutral

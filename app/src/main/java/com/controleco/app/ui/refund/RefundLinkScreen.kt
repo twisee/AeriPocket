@@ -161,7 +161,7 @@ private fun RefundRow(
 ) {
     val c = MaterialTheme.eco
     val merchant = row.counterparty.ifBlank { row.note }.ifBlank { "未命名支出" }
-    val detail = listOf(row.categoryName, row.accountName, refundDate(row.timestamp))
+    val detail = listOf(row.categoryName, refundDate(row.timestamp))
         .filter { it.isNotBlank() }
         .joinToString(" ")
 

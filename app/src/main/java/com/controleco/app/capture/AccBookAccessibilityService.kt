@@ -219,6 +219,7 @@ open class AccBookAccessibilityService : AccessibilityService() {
     private var lastContentHash = 0
     private var stableRounds = 0
     private var emptyRetries = 0
+    private val transientPayment = TransientPaymentCapture()
 
     private val lastEventLogAt = HashMap<String, Long>()
 
@@ -259,6 +260,7 @@ open class AccBookAccessibilityService : AccessibilityService() {
         lastContentHash = 0
         stableRounds = 0
         emptyRetries = 0
+        transientPayment.clear()
         // 事件源结构化副本随会话一起失效：重连后旧窗口的内容不该再当成当前页面
         pendingSourceNodes = emptyList()
         pendingSourceWindowId = -1
@@ -337,6 +339,7 @@ open class AccBookAccessibilityService : AccessibilityService() {
         val className = event.className?.toString().orEmpty()
 
         if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg.isNotEmpty()) {
+            transientPayment.onWindow(pkg, className, SystemClock.elapsedRealtime())
             CaptureCenter.noteForegroundPackage(pkg)
             if (className.isNotEmpty()) activities[pkg] = className
         }
@@ -348,9 +351,29 @@ open class AccBookAccessibilityService : AccessibilityService() {
 
         if (pkg == packageName) return // 自己的页面不采
         if (!shouldCapture(pkg)) return
+        if (com.controleco.app.diagnostics.CaptureDiagnostics.scopedPackage(pkg) &&
+            type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            com.controleco.app.diagnostics.CaptureDiagnostics.record("page_event", pkg, "收到页面事件",
+                "支付应用窗口变化，等待采集页面文字", mapOf("activity" to className, "windowId" to event.windowId.toString()))
+        }
 
         // 事件源节点：只在事件仍然有效时读，且**只对用户允许采集的应用读**
         val sourceNodeCount = captureEventSource(pkg, event)
+
+        // 支付窗口转场中，事件源可能只活这一帧；不能等稳定采样后再读，
+        // 也不能因活动窗口还有背景文字就丢掉它。仍走同一解析/去重/入账入口。
+        if (transientPayment.active(pkg, SystemClock.elapsedRealtime())) {
+            val sourceSnapshot = PageSnapshot(
+                packageName = pkg, className = className, activity = activities[pkg].orEmpty(),
+                eventType = type, eventTime = SystemClock.elapsedRealtime(),
+                windowId = pendingSourceWindowId, captureTime = System.currentTimeMillis(),
+                nodes = pendingSourceNodes,
+            )
+            if (transientPayment.preserve(sourceSnapshot, SystemClock.elapsedRealtime())) {
+                AppLog.i("Page", "preserve transient payment event source pkg=$pkg nodes=$sourceNodeCount")
+                deliver(sourceSnapshot, sourceSnapshot.fingerprint.hashCode())
+            }
+        }
 
         val now = SystemClock.elapsedRealtime()
         if (now - (lastEventLogAt[pkg] ?: 0L) > EVENT_LOG_INTERVAL_MS) {
@@ -427,6 +450,12 @@ open class AccBookAccessibilityService : AccessibilityService() {
     private fun collectCurrentPage() {
         collectScheduledAt = 0L
         val pkg = pendingPkg ?: return
+        // 转场延长补采期间同样尊重用户关闭开关或取消监听该应用。
+        if (!shouldCapture(pkg)) {
+            pendingSourceNodes = emptyList()
+            transientPayment.clear()
+            return
+        }
         val snapshot = buildSnapshot(pkg)
         val contentHash = snapshot.fingerprint.hashCode()
 
@@ -437,7 +466,8 @@ open class AccBookAccessibilityService : AccessibilityService() {
 
         // 空树：窗口切换过渡期内容未就绪，限次补采
         if (snapshot.lines.isEmpty()) {
-            if (emptyRetries < if (samplingOnly) 1 else MAX_EMPTY_RETRIES) {
+            if (emptyRetries < (if (samplingOnly) 1 else MAX_EMPTY_RETRIES) ||
+                transientPayment.active(pkg, SystemClock.elapsedRealtime())) {
                 emptyRetries++
                 AppLog.i("Page", "collect empty pkg=$pkg retry#$emptyRetries")
                 scheduleCollect(SAMPLE_INTERVAL_MS)
@@ -449,6 +479,9 @@ open class AccBookAccessibilityService : AccessibilityService() {
             }
             return
         }
+
+        // 有明确成功标题的短帧先交付，避免下一轮稳定采样只剩背景页。
+        if (transientPayment.preserve(snapshot, SystemClock.elapsedRealtime())) deliver(snapshot, contentHash)
 
         sampleRound++
         stableRounds = if (contentHash == lastContentHash) stableRounds + 1 else 0

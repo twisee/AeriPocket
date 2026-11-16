@@ -17,7 +17,7 @@ import com.controleco.app.util.Money
  *    `「支付寶」的說明文字列。 | 支付成功￥52.00 | 支付成功 | 52.00 | 拼多多平台商户 …`
  *
  * 判据只有三条：
- * - 前两个有效文本节点中至少一个以 `支付成功` 开头；
+ * - 成功结果容器（若存在）内的前两个有效文本节点中至少一个以 `支付成功` 开头；
  * - 能取到标题内金额，或标题后的第一个金额（支持 `￥` 与数字拆成两个节点）；
  * - 不命中历史账单详情页字段（详情页正文里也可能出现“支付成功”作为当前状态）。
  *
@@ -47,7 +47,7 @@ object AlipayPageParser : AppPageParser {
      * 成功页明细区标记：从这些标签开始，后面的金额不是实付。
      * 出处：真实样本的 `订单金额`、`付款方式`、`红包`，以及收银台/优惠样本里的 `优惠`、`立减`。
      */
-    private val breakdownMarkers = listOf("订单金额", "付款方式", "优惠", "立减", "红包")
+    private val breakdownMarkers = listOf("订单金额", "付款方式", "交易方式", "优惠", "立减", "红包")
 
     /**
      * 成功页徽章/按钮：与商户名同形，找商户时剔除。
@@ -55,7 +55,48 @@ object AlipayPageParser : AppPageParser {
      */
     private val badgeWords = listOf("获得森林能量", "恭喜你获得", "去领取", "碰一下立减")
 
-    override fun parse(snapshot: PageSnapshot, flow: PageFlow): PageParseResult {
+    override fun parse(snapshot: PageSnapshot, flow: PageFlow): PageParseResult =
+        parseResult(paymentResultRegion(snapshot), flow)
+
+    /** 2026-11-14/16 真机：付款码和首页仍在树中，成功内容位于独立结果容器。 */
+    private fun paymentResultRegion(snapshot: PageSnapshot): PageSnapshot {
+        val start = snapshot.nodeIndexByViewId("onsitepay_result_page")
+        if (start < 0) return inlinePaymentResult(snapshot) ?: snapshot
+        val root = snapshot.nodes[start]
+        val end = (start + 1 until snapshot.nodes.size).firstOrNull {
+            snapshot.nodes[it].depth <= root.depth
+        } ?: snapshot.nodes.size
+        // 空的结果容器也不能回退到背景里的历史支付消息。
+        return snapshot.copy(nodes = snapshot.nodes.subList(start, end).mapIndexed { index, node ->
+            node.copy(parentIndex = if (index == 0) -1 else node.parentIndex - start)
+        })
+    }
+
+    /** 99元样本只保留了前120个结构节点；按其完整文字中严格的结果区序列兜底。 */
+    private fun inlinePaymentResult(snapshot: PageSnapshot): PageSnapshot? {
+        val lines = snapshot.lines
+        if (historyDetailMarkers.any { snapshot.joined.contains(it) }) return null
+        // 必须同时有真实付款码背景，单独的首页“付款成功”预览不符合。
+        if (!listOf("收付款", "条形码", "二维码", "支付中...").all { it in lines }) return null
+        for (i in lines.indices) {
+            val title = lines[i].trim()
+            if (!title.matches(Regex("支付成功[￥¥][0-9,]+(?:\\.[0-9]{1,2})?"))) continue
+            val amount = PageParseSupport.amountInAnchor(title)?.let { Money.parseCents(it) } ?: continue
+            if (lines.getOrNull(i + 1) != "支付成功") continue
+            if (lines.getOrNull(i + 2)?.let { Money.parseCents(it) } != amount) continue
+            val merchant = lines.getOrNull(i + 3).orEmpty()
+            if (merchant.isBlank() || PageParseSupport.isAmountLikeNode(merchant)) continue
+            val repeatedAmount = lines.getOrNull(i + 4).orEmpty()
+            if (!repeatedAmount.startsWith("￥") && !repeatedAmount.startsWith("¥")) continue
+            if (Money.parseCents(repeatedAmount) != amount) continue
+            if (lines.getOrNull(i + 5) !in setOf("付款方式", "交易方式")) continue
+            if (lines.getOrNull(i + 6).isNullOrBlank() || lines.getOrNull(i + 7) != "完成") continue
+            return snapshot.copy(nodes = lines.subList(i, i + 8).map { PageNode(text = it) })
+        }
+        return null
+    }
+
+    private fun parseResult(snapshot: PageSnapshot, flow: PageFlow): PageParseResult {
         val lines = snapshot.lines
         val successIndex = lines.take(2).indexOfFirst { it.trim().startsWith(PAYMENT_SUCCESS) }
         if (successIndex < 0) return PageParseResult.NotATradePage
@@ -166,11 +207,11 @@ object AlipayPageParser : AppPageParser {
     }
 
     /**
-     * 支付方式：真实样本里 `付款方式` 独占一行，下一行是支付工具。
+     * 支付方式：真实样本里 `付款方式` / `交易方式` 独占一行，下一行是支付工具。
      * 不做多标签猜测；解析失败返回 null（宁可不匹配账户，也不猜）。
      */
     private fun paymentInstrumentOf(lines: List<String>): PaymentInstrument? {
-        val index = lines.indexOfFirst { it.trim() == "付款方式" }
+        val index = lines.indexOfFirst { it.trim() in setOf("付款方式", "交易方式") }
         if (index < 0) return null
         val raw = lines.getOrNull(index + 1)?.trim().orEmpty()
         if (raw.isEmpty()) return null

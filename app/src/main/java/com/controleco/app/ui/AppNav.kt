@@ -207,7 +207,7 @@ fun AccBookNav(
                 onQuickAdd = { navController.navigate("quickAdd") },
                 onEditTransaction = { id -> navController.navigate("edit/$id") },
                 onOpenPending = { navController.navigate("pending") },
-                onOpenAccount = { navController.navigate("settings/account") },
+                onOpenAccount = { navController.navigate("categories") },
                 onOpenImport = { navController.navigate("settings/import") },
                 onOpenSettings = { navController.navigate("settings") },
                 onOpenSearch = { navController.navigate("search") },
@@ -228,7 +228,7 @@ fun AccBookNav(
             val txId = entry.arguments?.getString("txId")?.toLongOrNull() ?: -1L
             EditTransactionScreen(vm = vm, txId = txId, onBack = { navController.popBackStack() })
         }
-        composable("accounts") { AccountsScreen(vm = vm, onBack = { navController.popBackStack() }) }
+        composable("accounts") { CategoriesScreen(vm = vm, onBack = { navController.popBackStack() }) }
         composable("categories") { CategoriesScreen(vm = vm, onBack = { navController.popBackStack() }) }
         composable("import") { ImportScreen(vm = vm, onBack = { navController.popBackStack() }) }
         composable("pending") {
@@ -276,18 +276,16 @@ fun AccBookNav(
                 onOpenHelp = { navController.navigate("settings/help") },
             )
         }
-        composable("settings/account") {
-            SettingsAccountScreen(
-                onBack = { navController.popBackStack() },
-                onOpenAccounts = { navController.navigate("accounts") },
-                onOpenCategories = { navController.navigate("categories") },
-            )
-        }
+        composable("settings/account") { CategoriesScreen(vm = vm, onBack = { navController.popBackStack() }) }
         composable("settings/import") {
             SettingsImportScreen(
                 onBack = { navController.popBackStack() },
                 onImport = { navController.navigate("import") },
+                onExport = { navController.navigate("settings/ledgerExport") },
             )
+        }
+        composable("settings/ledgerExport") {
+            com.controleco.app.ui.settings.LedgerExportScreen(vm, onBack = { navController.popBackStack() })
         }
         composable("settings/permissions") {
             SettingsPermissionScreen(
@@ -320,7 +318,15 @@ fun AccBookNav(
                 onBack = { navController.popBackStack() },
                 onOpenCaptureLog = { navController.navigate("captureLog") },
                 onOpenCaptureTrace = { navController.navigate("captureTrace") },
+                onOpenDiagnostics = { navController.navigate("settings/diagnostics") },
             )
+        }
+        composable("settings/diagnostics") {
+            com.controleco.app.ui.debug.DiagnosticScreen(onBack = { navController.popBackStack() },
+                onExport = { navController.navigate("settings/diagnosticExport") })
+        }
+        composable("settings/diagnosticExport") {
+            com.controleco.app.ui.debug.DiagnosticExportScreen(onBack = { navController.popBackStack() })
         }
         composable("settings/about") {
             SettingsAboutScreen(onBack = { navController.popBackStack() })
