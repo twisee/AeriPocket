@@ -1,5 +1,6 @@
 package com.controleco.app.capture
 
+import android.app.Application
 import android.content.ComponentName
 import android.content.Context
 import android.os.Handler
@@ -13,11 +14,11 @@ import com.controleco.app.diagnostics.CaptureDiagnostics
 internal object NotificationListenerRecovery {
     private val handler = Handler(Looper.getMainLooper())
     private val policy = ListenerRecoveryPolicy()
-    private var app: Context? = null
+    private var app: Application? = null
     private val check = Runnable { tick() }
 
     fun start(context: Context) {
-        app = context.applicationContext
+        app = context.applicationContext as? Application ?: return
         checkNow()
     }
 

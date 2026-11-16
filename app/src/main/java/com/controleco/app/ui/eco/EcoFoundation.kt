@@ -388,9 +388,9 @@ private fun TextStyle.fitTo(size: TextUnit): TextStyle {
  */
 @Composable
 fun EcoArrival(
+    modifier: Modifier = Modifier,
     delayMillis: Int = 0,
     turn: Float = 3f,
-    modifier: Modifier = Modifier,
     /** true 时忽略 delayMillis，30–630ms 随机延迟（个人页卡片无序弹出） */
     randomDelay: Boolean = false,
     content: @Composable () -> Unit,
@@ -467,8 +467,8 @@ fun EcoArrival(
 @Composable
 fun EcoSectionHead(
     title: String,
-    aside: String? = null,
     modifier: Modifier = Modifier,
+    aside: String? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val c = MaterialTheme.eco
@@ -516,9 +516,9 @@ fun EcoPageNote(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun EcoEmpty(
     title: String,
+    modifier: Modifier = Modifier,
     body: String? = null,
     icon: ImageVector = EcoIcons.Spark,
-    modifier: Modifier = Modifier,
 ) {
     val c = MaterialTheme.eco
     Column(

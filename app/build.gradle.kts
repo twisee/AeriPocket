@@ -14,8 +14,8 @@ android {
         applicationId = "com.twisee.wallet.eco"
         minSdk = 26
         targetSdk = 35
-        // 每次带修改的构建把第三位 +1；1.0.0 起为正式版本，版本名不再带 -beta 后缀
-        versionCode = 154
+        // 每次发布递增内部升级序号；显示版本按发布要求设置，正式版不带 -beta 后缀
+        versionCode = 155
         versionName = "1.5.4"
     }
 
@@ -70,9 +70,9 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
 
     testImplementation(libs.junit)
-    testImplementation("org.robolectric:robolectric:4.14.1")
-    testImplementation("androidx.compose.ui:ui-test-junit4")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 
  tasks.withType<Test>().configureEach {

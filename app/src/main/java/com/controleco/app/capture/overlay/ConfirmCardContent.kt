@@ -40,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -101,12 +102,12 @@ private fun formatOverlayTime(millis: Long): String =
  */
 internal class ConfirmCardState {
 
-    var pendingId by mutableStateOf(-1L)
+    var pendingId by mutableLongStateOf(-1L)
     var type by mutableStateOf(TxType.EXPENSE)
     var isRefund by mutableStateOf(false)
     var sourceLabel by mutableStateOf("")
     var ruleName by mutableStateOf("")
-    var timestamp by mutableStateOf(0L)
+    var timestamp by mutableLongStateOf(0L)
     var amountText by mutableStateOf("")
     var counterparty by mutableStateOf("")
     var note by mutableStateOf("")

@@ -74,13 +74,13 @@ fun BalanceCard(
     expenseCents: Long,
     imagePath: String?,
     image: CardImage?,
+    modifier: Modifier = Modifier,
     transform: CardTransform = CardTransform.DEFAULT,
     placeholderColor: Int? = null,
     placeholderLuminance: Float? = null,
     style: String = CoverStyleStore.NIGHT,
     onModeChange: (PeriodMode) -> Unit,
     onOpenImageSettings: () -> Unit,
-    modifier: Modifier = Modifier,
     /** 统计页复用同一张封面，但不在这里改背景图（入口仍在账单页） */
     showEdit: Boolean = true,
 ) {

@@ -262,7 +262,7 @@ private fun AccountRowItem(
                 )
                 if (isDefault) {
                     Spacer(Modifier.width(6.dp))
-                    EcoPill("默认", EcoPillTone.Neutral)
+                    EcoPill("默认", tone = EcoPillTone.Neutral)
                 }
             }
             Spacer(Modifier.height(3.dp))

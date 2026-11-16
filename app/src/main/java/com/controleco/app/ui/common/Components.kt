@@ -148,11 +148,11 @@ fun DropdownSelector(
     options: List<Pair<Long, String>>,
     selectedId: Long?,
     onSelect: (Long) -> Unit,
-    modifier: Modifier = Modifier.fillMaxWidth(),
+    modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selectedText = options.firstOrNull { it.first == selectedId }?.second ?: "请选择"
-    Box(modifier = modifier) {
+    Box(modifier = modifier.fillMaxWidth()) {
         OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
             Text("$label：$selectedText", maxLines = 1, overflow = TextOverflow.Ellipsis)
         }

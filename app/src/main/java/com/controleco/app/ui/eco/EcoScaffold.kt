@@ -63,6 +63,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -248,7 +249,7 @@ fun EcoBottomNav(
                 ) {
                     Box(
                         Modifier
-                            .offset(y = lift)
+                            .offset { IntOffset(0, lift.roundToPx()) }
                             .width(46.dp)
                             .height(29.dp),
                         contentAlignment = Alignment.Center,
@@ -412,9 +413,9 @@ fun EcoSquareFab(onClick: () -> Unit, modifier: Modifier = Modifier, icon: Image
 @Composable
 fun EcoSheet(
     onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
     title: String? = null,
     subtitle: String? = null,
-    modifier: Modifier = Modifier,
     scrollable: Boolean = true,
     content: @Composable () -> Unit,
 ) {

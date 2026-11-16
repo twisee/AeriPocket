@@ -53,6 +53,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.controleco.app.data.CategoryIcon
@@ -244,8 +245,8 @@ enum class EcoPillTone { Neutral, Good, Warn, Bad, Blue }
 @Composable
 fun EcoPill(
     text: String,
-    tone: EcoPillTone = EcoPillTone.Neutral,
     modifier: Modifier = Modifier,
+    tone: EcoPillTone = EcoPillTone.Neutral,
 ) {
     val c = MaterialTheme.eco
     val bg = when (tone) {
@@ -307,7 +308,7 @@ fun EcoSegmented(
         )
         Box(
             Modifier
-                .offset(x = x)
+                .offset { IntOffset(x.roundToPx(), 0) }
                 .width(itemWidth)
                 .fillMaxHeight()
                 .shadow(3.dp, RoundedCornerShape(9.dp), ambientColor = c.ink.copy(alpha = .12f), spotColor = c.ink.copy(alpha = .16f))
@@ -417,7 +418,7 @@ fun EcoSwitch(
     ) {
         Box(
             Modifier
-                .offset(x = thumbX, y = 2.dp)
+                .offset { IntOffset(thumbX.roundToPx(), 2.dp.roundToPx()) }
                 .size(20.dp)
                 .shadow(2.dp, CircleShape, ambientColor = c.ink.copy(alpha = .2f), spotColor = c.ink.copy(alpha = .25f))
                 .clip(CircleShape)
