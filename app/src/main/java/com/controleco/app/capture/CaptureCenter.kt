@@ -271,10 +271,15 @@ object CaptureCenter {
             .setCategory(androidx.core.app.NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)
         action?.let { builder.addAction(it) }
-        runCatching {
+        try {
             androidx.core.app.NotificationManagerCompat.from(appContext).notify(NOTIF_TAG, notifId, builder.build())
             AppLog.i("Ntf", "capture notification posted: $title")
-        }.onFailure { AppLog.w("Ntf", "post notification failed", it) }
+        } catch (e: SecurityException) {
+            // 授权可能在检查后被撤回；捕获流程继续，通知只记录失败。
+            AppLog.w("Ntf", "post notification permission revoked", e)
+        } catch (e: Exception) {
+            AppLog.w("Ntf", "post notification failed", e)
+        }
     }
 
     /** 待确认入账通知的确定性 id（同一笔被处理时按 id 撤销通知） */
@@ -566,10 +571,14 @@ object CaptureCenter {
                 ).addRemoteInput(remoteInput).build(),
             )
             .addAction(ignoreAction(IgnoreTarget(pendingId, dedupKey)))
-        runCatching {
+        try {
             androidx.core.app.NotificationManagerCompat.from(appContext)
                 .notify(NOTIF_TAG, pendingNotifId(dedupKey), builder.build())
-        }.onFailure { AppLog.w("Ntf", "post amount request failed", it) }
+        } catch (e: SecurityException) {
+            AppLog.w("Ntf", "post amount request permission revoked", e)
+        } catch (e: Exception) {
+            AppLog.w("Ntf", "post amount request failed", e)
+        }
     }
 
     /** 「忽略」action：广播到 CaptureActionReceiver（显式组件、非导出） */

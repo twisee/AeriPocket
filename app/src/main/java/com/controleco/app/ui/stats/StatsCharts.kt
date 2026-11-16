@@ -273,6 +273,8 @@ fun ExpenseBarChart(
  * 中心读的是"当前选中分类（没选中就是总支出）"的金额与占比；点环 / 横向滑动选分类，
  * 点空白（圆心）取消。选中后其余扇区降到 22% 混合度，颜色不会糊成一片。
  */
+enum class CategoryDonutDisplay { COMPOSITION, BUDGET_USAGE, CONSUMPTION }
+
 @Composable
 fun CategoryDonut(
     slices: List<CategorySlice>,
@@ -285,6 +287,7 @@ fun CategoryDonut(
     showCenterLabels: Boolean = true,
     /** 统计页只要一个环：外环按预算构成，不再叠内环 */
     singleRing: Boolean = false,
+    display: CategoryDonutDisplay = CategoryDonutDisplay.COMPOSITION,
 ) {
     val c = MaterialTheme.eco
     val selectedSlice = slices.firstOrNull { it.name == selected }
@@ -295,18 +298,18 @@ fun CategoryDonut(
         Canvas(
             Modifier
                 .fillMaxSize()
-                .pointerInput(slices) {
+                .pointerInput(slices, display) {
                     detectTapGestures { pos ->
-                        onSelect(donutGeometry(size.width.toFloat(), this).sliceAt(pos, slices))
+                        onSelect(donutGeometry(size.width.toFloat(), this).sliceAt(pos, slices, display))
                     }
                 }
-                .pointerInput(slices) {
+                .pointerInput(slices, display) {
                     detectHorizontalDragGestures(
                         onDragStart = { pos ->
-                            onSelect(donutGeometry(size.width.toFloat(), this).sliceAt(pos, slices))
+                            onSelect(donutGeometry(size.width.toFloat(), this).sliceAt(pos, slices, display))
                         },
                         onHorizontalDrag = { change, _ ->
-                            onSelect(donutGeometry(size.width.toFloat(), this).sliceAt(change.position, slices))
+                            onSelect(donutGeometry(size.width.toFloat(), this).sliceAt(change.position, slices, display))
                             change.consume()
                         },
                     )
@@ -317,7 +320,7 @@ fun CategoryDonut(
 
             // 底轨：单环只画外环，双环模式两环都画
             drawCircle(c.track.copy(alpha = 0.55f), radius = geo.rOuter, center = center, style = Stroke(geo.strokeOuter))
-            if (!singleRing) {
+            if (!singleRing && display != CategoryDonutDisplay.CONSUMPTION) {
                 drawCircle(c.track.copy(alpha = 0.55f), radius = geo.rInner, center = center, style = Stroke(geo.strokeInner))
             }
 
@@ -350,9 +353,19 @@ fun CategoryDonut(
                     start += sweep
                 }
             }
-            ring(geo.rOuter, geo.strokeOuter, alpha = 0.62f, value = { it.budgetCents }, total = slices.sumOf { it.budgetCents })
-            if (!singleRing) {
-                ring(geo.rInner, geo.strokeInner, alpha = 1f, value = { it.actualCents }, total = slices.sumOf { it.actualCents })
+            val actualTotal = slices.sumOf { it.actualCents }
+            val budgetTotal = slices.sumOf { it.budgetCents }
+            if (display == CategoryDonutDisplay.CONSUMPTION) {
+                ring(geo.rOuter, geo.strokeOuter, alpha = 1f, value = { it.actualCents }, total = actualTotal)
+            } else {
+                ring(geo.rOuter, geo.strokeOuter,
+                    alpha = if (display == CategoryDonutDisplay.BUDGET_USAGE) 1f else 0.62f,
+                    value = { it.budgetCents }, total = budgetTotal)
+                if (!singleRing) {
+                    // Unspent budget leaves a gap. Over-budget totals fill the ring once, without overlap.
+                    val innerTotal = if (display == CategoryDonutDisplay.BUDGET_USAGE) maxOf(actualTotal, budgetTotal) else actualTotal
+                    ring(geo.rInner, geo.strokeInner, alpha = 1f, value = { it.actualCents }, total = innerTotal)
+                }
             }
         }
 
@@ -562,25 +575,30 @@ internal class DonutGeometry(
     val strokeInner: Float,
 ) {
     /** 触点落在哪一环的哪个分类上（外环优先；都不中返回 null 表示清除选中） */
-    fun sliceAt(pos: Offset, slices: List<CategorySlice>): String? {
+    fun sliceAt(pos: Offset, slices: List<CategorySlice>, display: CategoryDonutDisplay = CategoryDonutDisplay.COMPOSITION): String? {
         val dx = pos.x - center.x
         val dy = pos.y - center.y
         val dist = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
         val onOuter = kotlin.math.abs(dist - rOuter) <= strokeOuter * 0.9f
         val onInner = kotlin.math.abs(dist - rInner) <= strokeInner * 0.9f
         if (!onOuter && !onInner) return null
+        if (display == CategoryDonutDisplay.CONSUMPTION && !onOuter) return null
         var deg = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble())).toFloat() + 90f
         if (deg < 0f) deg += 360f
-        val list = if (onOuter) slices.filter { it.budgetCents > 0L } else slices.filter { it.actualCents > 0L }
-        val total = list.sumOf { if (onOuter) it.budgetCents else it.actualCents }
+        val useBudget = onOuter && display != CategoryDonutDisplay.CONSUMPTION
+        val list = slices.filter { (if (useBudget) it.budgetCents else it.actualCents) > 0L }
+        val actualTotal = slices.sumOf { it.actualCents }
+        val budgetTotal = slices.sumOf { it.budgetCents }
+        val total = if (useBudget) budgetTotal else if (display == CategoryDonutDisplay.BUDGET_USAGE) maxOf(actualTotal, budgetTotal) else actualTotal
         if (total <= 0L) return null
         var acc = 0f
         list.forEach { s ->
-            val sweep = (if (onOuter) s.budgetCents else s.actualCents) * 360f / total
+            val sweep = (if (useBudget) s.budgetCents else s.actualCents) * 360f / total
             if (deg >= acc && deg < acc + sweep) return s.name
             acc += sweep
         }
-        return list.lastOrNull()?.name
+        // Empty budget track is not a category.
+        return if (display == CategoryDonutDisplay.BUDGET_USAGE && !onOuter && actualTotal < budgetTotal) null else list.lastOrNull()?.name
     }
 }
 

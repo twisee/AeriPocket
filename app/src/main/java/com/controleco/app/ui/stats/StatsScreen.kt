@@ -37,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +53,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -98,9 +101,8 @@ import kotlin.math.roundToInt
  *   「不计入预算」仍按全额（[LedgerViewModel.periodSpendingTotal] /
  *   [LedgerViewModel.periodCategorySums]）——钱确实花出去了；
  * - 结余封面与 `01` 支出节奏 = **账面**（含已退款的原支出、不折算 AA），用途不同；
- * - 「预算对比」= **实际支出**（[LedgerViewModel.periodCategorySums]，与 `02` 圆环同一口径）：
- *   不计入预算仍按全额、AA 按 m ÷ n——头部合计 = 各行之和 = 实际支出总额，与清单不会对不上。
- *   注意首页预算卡/分类剩余预算是**另一套**预算口径（不计入预算算 0），两者刻意不同。
+ * - 「预算使用」金额、合计、圆环及进度统一使用预算支出，排除不计入预算项。
+ * - 「全部消费」使用实际支出，包含不计入预算项，以全部消费为占比分母。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -115,7 +117,6 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
     val byCategory by vm.periodCategorySums.collectAsStateWithLifecycle()
     val budgetByCategory by vm.periodBudgetCategorySums.collectAsStateWithLifecycle()
     val rows by vm.periodRows.collectAsStateWithLifecycle()
-    val spendingTotal by vm.periodSpendingTotal.collectAsStateWithLifecycle()
     val categoryBudgets by vm.categoryBudgets.collectAsStateWithLifecycle()
     val categories by vm.categories.collectAsStateWithLifecycle()
     val cardImageUri by vm.cardImageUri.collectAsStateWithLifecycle()
@@ -128,8 +129,7 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
     val rowsReady = rows ?: return
     val totalsReady = totals ?: return
     val byCategoryReady = byCategory ?: return
-    val budgetUsedByName = (budgetByCategory ?: return).associate { it.categoryName to it.totalCents }
-    val spendingReady = spendingTotal ?: return
+    val budgetByCategoryReady = budgetByCategory ?: return
 
     val expense = totalsReady.firstOrNull { it.type == TxType.EXPENSE }?.totalCents ?: 0L
     val income = totalsReady.firstOrNull { it.type == TxType.INCOME }?.totalCents ?: 0L
@@ -142,37 +142,27 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
         month.year == currentAccountingMonth.year
     }
 
-    // 分类切片：实际支出（本期，已排除被标「已退款」的支出，AA 按 m ÷ n 折算）+ 分类预算（年视角按 12 个月合计）
-    val slices = remember(byCategoryReady, categoryBudgets, categories, mode) {
-        val actual = byCategoryReady.map { it.categoryName to it.totalCents }
-        val budget = categoryBudgets.entries.mapNotNull { (id, cents) ->
-            val category = categories.firstOrNull { it.id == id }
-            if (category == null || category.type != TxType.EXPENSE || cents <= 0L) {
-                null
-            } else {
-                category.name to if (mode == PeriodMode.YEAR) cents * 12 else cents
-            }
-        }
-        ChartMath.mergeSlices(actual, budget)
+    var showAllSpending by rememberSaveable { mutableStateOf(false) }
+    val categoryData = remember(byCategoryReady, budgetByCategoryReady, categoryBudgets, categories, mode) {
+        overviewCategories(categoryBudgets, categories, byCategoryReady, budgetByCategoryReady, mode)
     }
+    val ratioRows = if (showAllSpending) categoryData.spendingRows else categoryData.budgetRows
+    val shownTotal = if (showAllSpending) categoryData.spendingCents else categoryData.budgetUsedCents
+    val slices = remember(ratioRows) { ratioRows.map { CategorySlice(it.name, it.actualCents, it.budgetCents) } }
     // 圆环选中态与配色：**与分类图标同色**（图标自定义过颜色就用它；emoji/相册图片没有颜色，
     // 才由系统从调色板里挑"离已用色最远"的），选中态点空白处取消
-    val selectedState = remember(slices) { mutableStateOf<String?>(null) }
+    val selectedState = remember(showAllSpending, slices) { mutableStateOf<String?>(null) }
     var selectedSlice by selectedState
     val palette = MaterialTheme.accBook.categoryPalette
-    val sliceColors = remember(slices, palette, categories) {
+    val sliceColors = remember(categoryData, palette, categories) {
         val iconByName = categories
             .filter { it.type == TxType.EXPENSE }
             .associate { it.name to it.icon }
-        sliceColorsOf(palette, slices, iconByName)
+        // Both views use one palette assignment, even when one view contains fewer categories.
+        val allSlices = (categoryData.budgetRows + categoryData.spendingRows).distinctBy { it.name }
+            .map { CategorySlice(it.name, it.actualCents, it.budgetCents) }
+        sliceColorsOf(palette, allSlices, iconByName)
     }
-
-    // 预算对比：分类预算（年视角 ×12）与**实际支出**对齐（不计入预算仍全额、AA 按 金额÷n），
-    // 与 `02` 圆环同一口径；头部 actualTotal 用 spendingReady，恰好等于各行之和。
-    val ratioRows = remember(categoryBudgets, categories, byCategoryReady, mode) {
-        buildRatioRows(categoryBudgets, categories, byCategoryReady, mode)
-    }
-    val ratioBudget = ratioRows.sumOf { it.budgetCents }
 
     val monthEn = month.atDay(1)
         .format(DateTimeFormatter.ofPattern("MMM", Locale.ENGLISH))
@@ -191,13 +181,6 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
         EcoTopBar(
             micro = "INSIGHTS / $monthEn",
             title = "概览",
-            action = {
-                Text(
-                    "${month.year} / ${month.monthValue.toString().padStart(2, '0')}",
-                    style = EcoType.Micro,
-                    color = c.quiet,
-                )
-            },
         )
         LazyColumn(
             state = listState,
@@ -263,11 +246,15 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
             // 超过5条才固定圆环；少分类不用吸顶和额外空白制造可收起空间。
             if (ratioRows.size > 5) {
                 stickyHeader(key = "donutSticky") {
-                    StatsBudgetHeader(spendingReady, slices, sliceColors, selectedSlice) { selectedSlice = it }
+                    StatsBudgetHeader(showAllSpending, { showAllSpending = it }, shownTotal,
+                        categoryData.excludedByName[selectedSlice] ?: categoryData.excludedCents,
+                        slices, sliceColors, selectedSlice) { selectedSlice = it }
                 }
             } else {
                 item(key = "donutStatic") {
-                    StatsBudgetHeader(spendingReady, slices, sliceColors, selectedSlice) { selectedSlice = it }
+                    StatsBudgetHeader(showAllSpending, { showAllSpending = it }, shownTotal,
+                        categoryData.excludedByName[selectedSlice] ?: categoryData.excludedCents,
+                        slices, sliceColors, selectedSlice) { selectedSlice = it }
                 }
             }
 
@@ -275,12 +262,12 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
             item(key = "ratio") {
                 RatioCard(
                     rows = ratioRows,
-                    budgetUsedByName = budgetUsedByName,
-                    actualTotal = spendingReady,
-                    budgetTotal = ratioBudget,
+                    showAllSpending = showAllSpending,
+                    actualTotal = shownTotal,
+                    budgetTotal = categoryData.budgetCents,
                     colors = sliceColors,
                     selected = selectedSlice,
-                    onSelect = { selectedSlice = it },
+                    onSelect = { selectedSlice = if (selectedSlice == it) null else it },
                 )
             }
         }
@@ -299,108 +286,64 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
 }
 
 @Composable
-private fun StatsBudgetHeader(expense: Long, slices: List<CategorySlice>, colors: Map<String, Color>,
-                              selected: String?, onSelect: (String?) -> Unit) {
+private fun StatsBudgetHeader(
+    showAllSpending: Boolean, onViewChange: (Boolean) -> Unit,
+    total: Long, excluded: Long, slices: List<CategorySlice>, colors: Map<String, Color>,
+    selected: String?, onSelect: (String?) -> Unit,
+) {
     Column(Modifier.fillMaxWidth().background(MaterialTheme.eco.paper).testTag("statsBudgetHeader")) {
-        EcoSectionHead("分类预算与占比", aside = "BUDGET / ACTUAL", modifier = Modifier.padding(horizontal = 22.dp))
-        DonutCard(expense, slices, colors, selected, onSelect)
+        EcoSegmented(
+            options = listOf("预算使用", "全部消费"),
+            selectedIndex = if (showAllSpending) 1 else 0,
+            onSelect = { onViewChange(it == 1) },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 8.dp),
+            height = 38.dp,
+        )
+        EcoSectionHead(if (showAllSpending) "消费占比" else "分类预算",
+            aside = if (showAllSpending) "SPENDING" else "BUDGET",
+            modifier = Modifier.padding(horizontal = 22.dp))
+        DonutCard(total, excluded, slices, colors, selected, onSelect, showAllSpending)
     }
 }
 
-/** 唯一保留的占比圆环：空心、圆心不写数字；实际/预算金额放在环两侧。 */
+/** Amounts on both sides follow the active view; the center remains empty. */
 @Composable
 private fun DonutCard(
-    expenseCents: Long,
-    slices: List<CategorySlice>,
-    sliceColors: Map<String, Color>,
-    selected: String?,
-    onSelect: (String?) -> Unit,
+    totalCents: Long, excludedCents: Long,
+    slices: List<CategorySlice>, sliceColors: Map<String, Color>,
+    selected: String?, onSelect: (String?) -> Unit, showAllSpending: Boolean,
 ) {
     val c = MaterialTheme.eco
-    EcoPane(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 22.dp),
-        shape = RoundedCornerShape(20.dp),
-    ) {
-        if (slices.isEmpty()) {
-            Box(
-                Modifier.fillMaxWidth().padding(18.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                EmptyNote("暂无分类数据")
-            }
-        } else {
+    EcoPane(modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp), shape = RoundedCornerShape(20.dp)) {
+        Column {
             val selectedData = slices.firstOrNull { it.name == selected }
-            val actualShown = selectedData?.actualCents ?: expenseCents
             val budgetTotal = slices.sumOf { it.budgetCents }
-            val actualShare = if (budgetTotal > 0) actualShown * 100f / budgetTotal else 0f
-            val budgetShown = selectedData?.budgetCents ?: budgetTotal
-            val budgetShare = if (selectedData == null) {
-                if (budgetTotal > 0) 100f else 0f
-            } else {
-                ChartMath.sharePercent(budgetShown, budgetTotal)
-            }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(start = 10.dp, end = 10.dp, top = 14.dp, bottom = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
-                    Text(
-                        selectedData?.name ?: "实际支出",
-                        style = EcoType.Micro.copy(fontSize = 8.sp),
-                        color = c.quiet,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Text(selectedData?.name ?: if (showAllSpending) "全部消费" else "预算已用",
+                        style = EcoType.Micro.copy(fontSize = 8.sp), color = c.quiet,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(2.dp))
-                    EcoAutoMoney(
-                        text = Money.formatYuanGroupedFixed(actualShown),
-                        style = EcoType.CatAmount.copy(fontSize = 16.sp),
-                        color = c.ink,
-                        widthLimit = 84.dp,
-                        minSize = 10.sp,
-                        textAlign = TextAlign.Start,
-                    )
-                    Text(
-                        "${actualShare.roundToInt()}%",
-                        style = EcoType.PageNote.copy(fontSize = 9.sp),
-                        color = c.muted,
-                    )
+                    EcoAutoMoney(text = Money.formatYuanGroupedFixed(selectedData?.actualCents ?: totalCents),
+                        style = EcoType.CatAmount.copy(fontSize = 16.sp), color = c.ink,
+                        widthLimit = 84.dp, minSize = 10.sp, textAlign = TextAlign.Start)
+                    if (showAllSpending && selectedData != null) {
+                        Text("占全部 ${categoryPercent(selectedData.actualCents, totalCents)}%",
+                            style = EcoType.PageNote.copy(fontSize = 9.sp), color = c.muted)
+                    }
                 }
-                CategoryDonut(
-                    slices = slices,
-                    totalActualCents = expenseCents,
-                    colors = sliceColors,
-                    selected = selected,
-                    onSelect = onSelect,
-                    ringSize = 150.dp,
-                    showCenterLabels = false,
-                    singleRing = false,
-                )
+                CategoryDonut(slices = slices, totalActualCents = totalCents, colors = sliceColors,
+                    selected = selected, onSelect = onSelect, ringSize = 150.dp, showCenterLabels = false,
+                    display = if (showAllSpending) CategoryDonutDisplay.CONSUMPTION else CategoryDonutDisplay.BUDGET_USAGE)
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                    Text(
-                        "预算",
-                        style = EcoType.Micro.copy(fontSize = 8.sp),
-                        color = c.quiet,
-                        maxLines = 1,
-                    )
+                    Text(if (showAllSpending) "其中不计预算" else if (selectedData == null) "分类预算合计" else "分类预算",
+                        style = EcoType.Micro.copy(fontSize = 8.sp), color = c.quiet, maxLines = 1)
                     Spacer(Modifier.height(2.dp))
-                    EcoAutoMoney(
-                        text = Money.formatYuanGroupedFixed(budgetShown),
-                        style = EcoType.CatAmount.copy(fontSize = 16.sp),
-                        color = c.ink,
-                        widthLimit = 84.dp,
-                        minSize = 10.sp,
-                        textAlign = TextAlign.End,
-                    )
-                    Text(
-                        "${budgetShare.roundToInt()}%",
-                        style = EcoType.PageNote.copy(fontSize = 9.sp),
-                        color = c.muted,
-                    )
+                    EcoAutoMoney(text = Money.formatYuanGroupedFixed(if (showAllSpending) excludedCents else selectedData?.budgetCents ?: budgetTotal),
+                        style = EcoType.CatAmount.copy(fontSize = 16.sp), color = c.ink,
+                        widthLimit = 84.dp, minSize = 10.sp, textAlign = TextAlign.End,
+                        modifier = Modifier.testTag("statsDonutRightAmount"))
                 }
             }
         }
@@ -762,204 +705,89 @@ private fun TrendCard(
 
 @Composable
 private fun RatioCard(
-    rows: List<BudgetRatioRow>,
-    budgetUsedByName: Map<String, Long>,
-    actualTotal: Long,
-    budgetTotal: Long,
-    colors: Map<String, Color>,
-    selected: String?,
-    onSelect: (String) -> Unit,
+    rows: List<BudgetRatioRow>, showAllSpending: Boolean,
+    actualTotal: Long, budgetTotal: Long, colors: Map<String, Color>,
+    selected: String?, onSelect: (String) -> Unit,
 ) {
     val c = MaterialTheme.eco
-    EcoPane(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 22.dp)
-            .padding(top = 14.dp),
-        shape = RoundedCornerShape(20.dp),
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 13.dp),
-        ) {
+    EcoPane(modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp).padding(top = 14.dp),
+        shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 13.dp)
+            .testTag("statsCategoryList")) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                Text("预算对比", style = EcoType.SectionTitle, color = c.ink)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    Money.formatYuanGrouped(actualTotal),
-                    style = EcoType.CatAmount.copy(fontSize = 13.5.sp),
-                    color = c.ink,
-                    maxLines = 1,
-                )
-                Text(
-                    " / ${Money.formatYuanGrouped(budgetTotal)}",
-                    style = EcoType.RowTrail.copy(fontSize = 10.sp),
-                    color = c.quiet,
-                    maxLines = 1,
-                )
+                Text(if (showAllSpending) "全部消费分布" else "预算使用", style = EcoType.SectionTitle, color = c.ink,
+                    modifier = Modifier.weight(1f))
+                Text(if (showAllSpending) "含不计入预算的支出"
+                    else "${Money.formatYuanGrouped(actualTotal)} / ${Money.formatYuanGrouped(budgetTotal)}",
+                    style = EcoType.RowTrail.copy(fontSize = 10.sp), color = c.quiet, maxLines = 1,
+                    modifier = Modifier.testTag("statsCategoryTotal"))
             }
             if (rows.isEmpty()) {
-                Text(
-                    "暂无分类预算",
-                    style = EcoType.PageNote.copy(fontSize = 9.sp),
-                    color = c.quiet,
-                    modifier = Modifier.padding(top = 10.dp, start = 2.dp, end = 2.dp),
-                )
+                Text(if (showAllSpending) "暂无消费记录" else "暂无分类预算或预算支出", style = EcoType.PageNote,
+                    color = c.quiet, modifier = Modifier.padding(top = 10.dp))
             } else {
                 Spacer(Modifier.height(10.dp))
                 rows.forEachIndexed { index, row ->
-                    if (index > 0) {
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(c.rule))
-                    }
-                    RatioListRow(
-                        row = row,
-                        budgetUsedCents = budgetUsedByName[row.name] ?: 0L,
-                        color = colors[row.name] ?: c.quiet,
-                        actualShare = ratioPercent(row.actualCents, actualTotal),
-                        budgetShare = ratioPercent(row.budgetCents, budgetTotal),
-                        selected = row.name == selected,
-                        dim = selected != null && row.name != selected,
-                        onClick = { onSelect(row.name) },
-                    )
+                    if (index > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(c.rule))
+                    RatioListRow(row, colors[row.name] ?: c.quiet, showAllSpending, actualTotal,
+                        row.name == selected, selected != null && row.name != selected) { onSelect(row.name) }
                 }
             }
         }
     }
 }
 
-@Composable
-private fun RatioSide(
-    caption: String,
-    amountCents: Long,
-    percentText: String,
-    percentColor: Color,
-    alignEnd: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val c = MaterialTheme.eco
-    Column(
-        modifier,
-        horizontalAlignment = if (alignEnd) Alignment.End else Alignment.Start,
-    ) {
-        Text(
-            caption,
-            style = EcoType.PageNote.copy(fontSize = 8.sp, letterSpacing = 0.2.sp),
-            color = c.muted,
-            maxLines = 1,
-        )
-        Spacer(Modifier.height(2.dp))
-        EcoAutoMoney(
-            text = Money.formatYuanGrouped(amountCents),
-            style = EcoType.CatAmount.copy(fontSize = 14.sp),
-            color = c.ink,
-            minSize = 9.sp,
-            textAlign = if (alignEnd) TextAlign.End else TextAlign.Start,
-        )
-        Spacer(Modifier.height(1.dp))
-        Text(
-            percentText,
-            style = EcoType.RowTrail.copy(fontSize = 11.5.sp),
-            color = percentColor,
-            maxLines = 1,
-        )
-    }
-}
-
-/** 预算对比清单的一行：左侧 9dp 竖色条 + 名称 / 实际 / 占比，第二行 预算 / 预算占比 */
+/** One amount aligned right; percentage describes the active view explicitly. */
 @Composable
 private fun RatioListRow(
-    row: BudgetRatioRow,
-    budgetUsedCents: Long,
-    color: Color,
-    actualShare: Float,
-    budgetShare: Float,
-    selected: Boolean,
-    dim: Boolean,
-    onClick: () -> Unit,
+    row: BudgetRatioRow, color: Color, showAllSpending: Boolean, actualTotal: Long,
+    selected: Boolean, dim: Boolean, onClick: () -> Unit,
 ) {
     val c = MaterialTheme.eco
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            // 选中别的分类时其余行降到 46%（与原型 .dim 一致）
-            .graphicsLayer { alpha = if (dim) 0.46f else 1f }
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (selected) c.blueWash.copy(alpha = if (c.isDark) 0.5f else 0.85f) else Color.Transparent)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            )
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .width(9.dp)
-                .fillMaxHeight()
-                .heightIn(min = 42.dp)
-                .clip(RoundedCornerShape(5.dp))
-                .background(color),
-        )
+    val over = !showAllSpending && row.budgetCents > 0 && row.actualCents > row.budgetCents
+    val percent = categoryPercent(row.actualCents, if (showAllSpending) actualTotal else row.budgetCents)
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+        .testTag("statsCategoryRow:${row.name}")
+        .graphicsLayer { alpha = if (dim) 0.46f else 1f }
+        .clip(RoundedCornerShape(10.dp))
+        .background(if (selected) c.blueWash.copy(alpha = if (c.isDark) 0.5f else 0.85f) else Color.Transparent)
+        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+        .padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(9.dp).fillMaxHeight().heightIn(min = 42.dp).clip(RoundedCornerShape(5.dp)).background(color)
+            .testTag("statsCategoryMarker:${row.name}"))
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    row.name,
-                    style = EcoType.RowTitle.copy(fontSize = 14.5.sp, fontWeight = FontWeight.Bold),
-                    color = c.ink,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+                Text(row.name, style = EcoType.RowTitle.copy(fontSize = 14.5.sp, fontWeight = FontWeight.Bold),
+                    color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    Money.formatYuanGrouped(row.actualCents),
-                    style = EcoType.CatAmount.copy(fontSize = 14.5.sp),
-                    color = c.ink,
-                    maxLines = 1,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "${actualShare.roundToInt()}%",
-                    style = EcoType.RowTrail.copy(fontSize = 11.5.sp),
-                    color = c.muted,
-                    modifier = Modifier.width(34.dp),
-                    textAlign = TextAlign.End,
-                )
+                Text(Money.formatYuanGrouped(row.actualCents), style = EcoType.CatAmount.copy(fontSize = 14.5.sp),
+                    color = c.ink, maxLines = 1, modifier = Modifier.testTag("statsCategoryAmount:${row.name}"))
             }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Spacer(Modifier.weight(1f))
-                Text(
-                    Money.formatYuanGrouped(row.budgetCents),
-                    style = EcoType.RowTrail.copy(fontSize = 10.5.sp),
-                    color = c.muted,
-                    maxLines = 1,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "${budgetShare.roundToInt()}%",
-                    style = EcoType.PageNote.copy(fontSize = 10.sp),
-                    color = c.quiet,
-                    modifier = Modifier.width(34.dp),
-                    textAlign = TextAlign.End,
-                )
+            Row(Modifier.fillMaxWidth().padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (showAllSpending) "占全部消费 $percent%" else if (row.budgetCents > 0) "已用 $percent%" else "未设预算",
+                    style = EcoType.RowTrail.copy(fontSize = 10.5.sp), color = if (over) c.clay else c.muted,
+                    modifier = Modifier.weight(1f))
+                if (!showAllSpending && row.budgetCents > 0) {
+                    Text("预算 ${Money.formatYuanGrouped(row.budgetCents)}", style = EcoType.RowTrail.copy(fontSize = 10.5.sp), color = c.quiet)
+                }
             }
-            if(row.budgetCents > 0L) {
-                val progress = (budgetUsedCents.toDouble() / row.budgetCents).toFloat().coerceIn(0f, 1f)
-                val progressColor = when { budgetUsedCents > row.budgetCents -> c.clay; progress >= .9f -> c.amber; else -> c.jade }
+            if (!showAllSpending && row.budgetCents > 0) {
+                val progress = (row.actualCents.toDouble() / row.budgetCents).toFloat().coerceIn(0f, 1f)
                 Spacer(Modifier.height(9.dp))
                 Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(c.track)
-                    .semantics { contentDescription = "${row.name}预算已用${(budgetUsedCents.toDouble() / row.budgetCents * 100).roundToInt()}%" }) {
-                    Box(Modifier.fillMaxHeight().fillMaxWidth(progress).background(progressColor))
+                    .testTag("statsCategoryProgress:${row.name}")
+                    .semantics {
+                        contentDescription = "${row.name}预算已用$percent%"
+                        progressBarRangeInfo = ProgressBarRangeInfo(progress, 0f..1f)
+                    }) {
+                    // Category identity remains stable, including at and above 100%.
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(progress).background(color)
+                        .testTag("statsCategoryProgressFill:${row.name}"))
                 }
+                if (over) Text("超出 ${Money.formatYuanGrouped(row.actualCents - row.budgetCents)}",
+                    style = EcoType.PageNote.copy(fontSize = 10.sp), color = c.clay,
+                    textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth().padding(top = 5.dp))
             }
         }
     }
@@ -970,9 +798,8 @@ private fun RatioListRow(
 /**
  * 预算对比的行数据 = **设了预算的支出分类** ∪ **本期有账单记录的支出分类**（按分类名去重）。
  *
- * [byCategory] 传的是**实际支出**（`periodCategorySums`：不计入预算仍按全额、AA 按 金额÷n），
- * 与 `02` 圆环同一口径；因此头部合计（`spendingReady`）恰好等于各行「实际」之和，
- * 行占比加起来是 100%。预算对比不再使用预算口径的分类金额。
+ * [byCategory] 可传实际支出或计入预算的支出；两者均沿用退款和 AA 规则。
+ * 按调用方传入的统计口径构建对应行。
  *
  * - 只设了预算、本期没花的分也保留（预算 0 实际，点名"预算没用上"）；
  * - 本期有支出但**没设预算**的分类同样要出现（预算记 0、占比 0%），否则用户看不到这笔钱花在哪
@@ -1018,10 +845,6 @@ internal fun buildRatioRows(
             .thenBy { it.name },
     )
 }
-
-/** 占比（0..100）；分母 ≤ 0 时返回 0 */
-private fun ratioPercent(part: Long, total: Long): Float =
-    if (total <= 0L) 0f else part * 100f / total
 
 @Composable
 private fun EmptyNote(text: String) {

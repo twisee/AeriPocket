@@ -209,7 +209,7 @@ class Release153UiTest {
         waitFor { vm.categoryBudgets.value.size==6 }
         ui.onNode(hasScrollToIndexAction()).performScrollToIndex(5)
         ui.onNode(hasScrollToIndexAction()).performTouchInput { swipeUp() }
-        ui.onNodeWithText("分类预算与占比").assertIsDisplayed()
+        ui.onNodeWithText("分类预算").assertIsDisplayed()
         ui.onNodeWithContentDescription("第六分类预算已用0%").assertIsDisplayed()
         val after=ui.onNodeWithTag("statsBudgetHeader").fetchSemanticsNode().boundsInRoot.top
         assertTrue("Long list keeps the chart visible at the top: $before -> $after",after <= before)

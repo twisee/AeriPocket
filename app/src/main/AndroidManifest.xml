@@ -9,6 +9,8 @@
 
     <!-- 银行动账短信：只收新到短信（不读历史、非默认短信应用）；设置里默认关，开启时运行时申请 -->
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <!-- 短信采集可选，无电话硬件的平板等设备仍可使用其他记账功能。 -->
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <!-- 打赏页把收款码保存到相册：Android 8/9 写公共 Pictures 需要该权限；10+ 走 MediaStore，不需要 -->
     <uses-permission

@@ -53,8 +53,9 @@ private object FloralArtworkCache {
 internal fun AliceFloralBackground(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val dark = MaterialTheme.eco.isDark
-    val artwork by produceState(FloralArtworkCache.peek(context), context) {
-        value = withContext(Dispatchers.IO) { FloralArtworkCache.load(context) }
+    var artwork by remember(context) { mutableStateOf(FloralArtworkCache.peek(context)) }
+    LaunchedEffect(context) {
+        artwork = withContext(Dispatchers.IO) { FloralArtworkCache.load(context) }
     }
     Box(modifier.background(MaterialTheme.eco.surfaceInset)) {
         artwork?.let { Image(it, "爱丽丝花卉卡片", Modifier.fillMaxSize().testTag("aliceFloralArtwork"),

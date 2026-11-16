@@ -8,8 +8,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,8 +72,9 @@ fun CategoryLogo(categoryName: String, icon: String, size: Dp = 40.dp) {
 @Composable
 private fun ImageLogo(categoryName: String, fileName: String, size: Dp) {
     val context = LocalContext.current
-    val bitmap by produceState<Bitmap?>(initialValue = null, fileName) {
-        value = withContext(Dispatchers.IO) { CategoryIcon.loadImage(context, fileName) }
+    var bitmap by remember(context, fileName) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(context, fileName) {
+        bitmap = withContext(Dispatchers.IO) { CategoryIcon.loadImage(context, fileName) }
     }
     val bmp = bitmap
     if (bmp != null) {

@@ -3,6 +3,7 @@ package com.controleco.app.capture
 import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import androidx.core.app.NotificationCompat
 import com.controleco.app.BuildConfig
 import com.controleco.app.util.AppLog
 
@@ -78,7 +79,7 @@ class NotificationCaptureService : NotificationListenerService() {
     }
 
     /** 一条通知的文本快照（与 GroupNotificationResolver 的纯数据类共用同一形态） */
-    private fun snapshotOf(sbn: StatusBarNotification): NotificationText {
+    internal fun snapshotOf(sbn: StatusBarNotification): NotificationText {
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim().orEmpty()
@@ -93,12 +94,11 @@ class NotificationCaptureService : NotificationListenerService() {
                     ?.forEach { line -> line?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let { add(it) } }
             }
             runCatching {
-                extras.getParcelableArray(Notification.EXTRA_MESSAGES)?.let { parcels ->
-                    Notification.MessagingStyle.Message.getMessagesFromBundleArray(parcels)
-                        .forEach { message ->
-                            message.text?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let { add(it) }
-                        }
-                }
+                // Compat 解码同时支持 Android 8/9/10；平台的同名解码方法直到 API 30 才公开。
+                NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(sbn.notification)
+                    ?.messages?.forEach { message ->
+                        message.text?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let { add(it) }
+                    }
             }
         }
         return NotificationText(

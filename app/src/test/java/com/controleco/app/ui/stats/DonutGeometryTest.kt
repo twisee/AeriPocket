@@ -71,4 +71,23 @@ class DonutGeometryTest {
         assertEquals("购物", geometry.sliceAt(pointAt(78f, 90f), data))
         assertEquals("餐饮", geometry.sliceAt(pointAt(52f, 90f), data))
     }
+
+    @Test fun consumptionUsesOnlyOuterActualRingIncludingUnbudgetedCategories() {
+        val data = listOf(CategorySlice("餐饮", 60, 100), CategorySlice("日常", 40, 0))
+        assertEquals("餐饮", geometry.sliceAt(pointAt(78f, 90f), data, CategoryDonutDisplay.CONSUMPTION))
+        assertEquals("日常", geometry.sliceAt(pointAt(78f, 300f), data, CategoryDonutDisplay.CONSUMPTION))
+        assertNull(geometry.sliceAt(pointAt(52f, 90f), data, CategoryDonutDisplay.CONSUMPTION))
+    }
+
+    @Test fun budgetTrackGapCannotSelectLastCategory() {
+        val data = listOf(CategorySlice("餐饮", 20, 100))
+        assertEquals("餐饮", geometry.sliceAt(pointAt(52f, 30f), data, CategoryDonutDisplay.BUDGET_USAGE))
+        assertNull(geometry.sliceAt(pointAt(52f, 180f), data, CategoryDonutDisplay.BUDGET_USAGE))
+        assertEquals("餐饮", geometry.sliceAt(pointAt(78f, 180f), data, CategoryDonutDisplay.BUDGET_USAGE))
+    }
+
+    @Test fun overBudgetInnerRingFillsOnceAndRemainsSelectable() {
+        val data = listOf(CategorySlice("餐饮", 120, 100))
+        assertEquals("餐饮", geometry.sliceAt(pointAt(52f, 350f), data, CategoryDonutDisplay.BUDGET_USAGE))
+    }
 }
