@@ -2,7 +2,7 @@
 
 一个围绕日常预算与爱丽丝主题设计的 Android 个人记账软件。轻量、简约，账本保存在本机，无需注册账号。
 
-[下载正式版](https://github.com/twisee/AeriPocket/releases/latest) · [版本记录](https://github.com/twisee/AeriPocket/releases) · [问题反馈](https://github.com/twisee/AeriPocket/issues)
+[下载正式版](https://github.com/twisee/AeriPocket/releases/latest) · [完整更新日志](CHANGELOG.md) · [问题反馈](https://github.com/twisee/AeriPocket/issues)
 
 ## 界面
 
