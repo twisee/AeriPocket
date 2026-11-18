@@ -17,6 +17,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -325,16 +330,30 @@ fun TxBudgetOptions(
     onSharesTextChange: (String) -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    experienceAvailable: Boolean = false,
+    experienceBudget: Boolean = false,
+    onExperienceBudgetChange: (Boolean) -> Unit = {},
 ) {
     val rowHeight = if (compact) 36.dp else 46.dp
     Column(modifier.fillMaxWidth()) {
         TxBudgetSwitchRow(
             title = "不计入预算",
             checked = budgetExcluded,
-            onCheckedChange = onBudgetExcludedChange,
+            onCheckedChange = { enabled ->
+                onBudgetExcludedChange(enabled)
+                if (enabled) onExperienceBudgetChange(false)
+            },
             height = rowHeight,
             compact = compact,
         )
+        if (experienceAvailable || experienceBudget) {
+            EcoHairline()
+            TxBudgetSwitchRow(title = "计入体验预算", checked = experienceBudget,
+                onCheckedChange = { enabled ->
+                    onExperienceBudgetChange(enabled)
+                    if (enabled) onBudgetExcludedChange(false)
+                }, height = rowHeight, compact = compact)
+        }
         EcoHairline()
         TxBudgetSwitchRow(
             title = "AA 支出",
@@ -379,7 +398,15 @@ private fun TxBudgetSwitchRow(
             trailing()
             Spacer(Modifier.width(10.dp))
         }
-        EcoSwitch(checked = checked, onCheckedChange = onCheckedChange)
+        Box(Modifier.size(40.dp).toggleable(value = checked, role = Role.Checkbox, onValueChange = onCheckedChange).semantics { contentDescription = title },
+            contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.size(21.dp).border(1.5.dp, if (checked) c.blue else c.quiet, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (checked) Box(Modifier.size(15.dp).background(c.blue, CircleShape))
+            }
+        }
     }
 }
 

@@ -114,7 +114,18 @@ internal fun applyBillFilters(
     rows: List<TransactionRow>,
     filter: TxFilter,
     categoryIds: Set<Long>,
-): List<TransactionRow> = applyCategoryFilter(applyTypeFilter(rows, filter), categoryIds)
+    refundCategoryIds: Set<Long> = emptySet(),
+): List<TransactionRow> {
+    val refundSelected = categoryIds.any { it in refundCategoryIds }
+    if (!refundSelected) return applyCategoryFilter(applyTypeFilter(rows, filter), categoryIds)
+    val ordinary = categoryIds - refundCategoryIds
+    return rows.filter { row ->
+        (row.refundedCents > 0 && row.type == TxType.EXPENSE) ||
+            (row.categoryId in ordinary && (filter == TxFilter.ALL ||
+                (filter == TxFilter.EXPENSE && row.type == TxType.EXPENSE) ||
+                (filter == TxFilter.INCOME && row.type == TxType.INCOME)))
+    }
+}
 
 /**
  * 搜索页条件：商户关键字 + 金额 + 类型 + 分类，四项 AND。
@@ -133,9 +144,9 @@ internal data class BillSearchQuery(
 }
 
 /** 搜索：先按类型/分类筛，再按商户/金额筛；顺序沿用 DAO 的时间倒序，不做重排 */
-internal fun searchBills(rows: List<TransactionRow>, query: BillSearchQuery): List<TransactionRow> {
+internal fun searchBills(rows: List<TransactionRow>, query: BillSearchQuery, refundCategoryIds: Set<Long> = emptySet()): List<TransactionRow> {
     if (!query.isActive) return emptyList()
-    return applyBillFilters(rows, query.type, query.categoryIds)
+    return applyBillFilters(rows, query.type, query.categoryIds, refundCategoryIds)
         .filter { merchantMatches(it.counterparty, query.keyword) && amountMatches(it.amountCents, query.amount) }
 }
 

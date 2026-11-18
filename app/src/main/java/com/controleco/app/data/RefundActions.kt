@@ -16,11 +16,11 @@ internal class RefundActions(private val db: AccBookDatabase) {
             ?: db.categoryDao().insert(CategoryEntity(name = RefundCategory.NAME, type = TxType.INCOME, sortOrder = 3))
     }
 
-    private suspend fun createRefund(expense: TransactionEntity, capture: PendingTransactionEntity? = null) {
+    private suspend fun createRefund(expense: TransactionEntity, capture: PendingTransactionEntity? = null, amountOverride: Long? = null) {
         transactions.insert(
             TransactionEntity(
                 type = TxType.INCOME,
-                amountCents = capture?.amountCents?.takeIf { it > 0 } ?: (expense.amountCents - expense.refundedCents),
+                amountCents = amountOverride ?: capture?.amountCents?.takeIf { it > 0 } ?: (expense.amountCents - expense.refundedCents),
                 categoryId = refundCategoryId(),
                 accountId = expense.accountId,
                 // 保证生成的收入在原支出之后；普通捕获仍保留退款业务时间。
@@ -35,19 +35,20 @@ internal class RefundActions(private val db: AccBookDatabase) {
                 flowId = capture?.flowId.orEmpty(),
             ),
         )
-        val amount = capture?.amountCents?.takeIf { it > 0 } ?: (expense.amountCents - expense.refundedCents)
+        val amount = amountOverride ?: capture?.amountCents?.takeIf { it > 0 } ?: (expense.amountCents - expense.refundedCents)
         val total = expense.refundedCents + amount
         transactions.update(expense.copy(refundedCents = total,
             refundMark = if (total >= expense.amountCents) RefundMark.REFUNDED_EXPENSE else RefundMark.NONE))
     }
 
-    suspend fun refundExpense(expenseId: Long) = db.withTransaction {
+    suspend fun refundExpense(expenseId: Long, amountCents: Long? = null) = db.withTransaction {
         val expense = transactions.getById(expenseId)
-        RefundRules.expenseError(expense)?.let { error(it) }
-        createRefund(requireNotNull(expense))
+        require(amountCents == null || amountCents > 0) { "退款金额须大于零" }
+        RefundRules.expenseError(expense, amountCents ?: 0)?.let { error(it) }
+        createRefund(requireNotNull(expense), amountOverride = amountCents)
     }
 
-    suspend fun refundCaptured(pendingId: Long, expenseId: Long) {
+    suspend fun refundCaptured(pendingId: Long, expenseId: Long, amountCents: Long? = null) {
         var resolved: PendingTransactionEntity? = null
         try {
             db.withTransaction {
@@ -55,10 +56,11 @@ internal class RefundActions(private val db: AccBookDatabase) {
                 check(capture.status == PendingStatus.PENDING && capture.type == TxType.INCOME &&
                     capture.refundMark == RefundMark.REFUND_INCOME) { "该记录不是待处理退款" }
                 val expense = transactions.getById(expenseId)
-                RefundRules.expenseError(expense, capture.amountCents)?.let { error(it) }
+                require(amountCents == null || amountCents > 0) { "退款金额须大于零" }
+                RefundRules.expenseError(expense, amountCents ?: capture.amountCents)?.let { error(it) }
                 resolved = capture
                 LogicalTransactions.markResolved(capture, CaptureResolution.HANDLED)
-                createRefund(requireNotNull(expense), capture)
+                createRefund(requireNotNull(expense), capture, amountCents)
                 db.pendingDao().deleteById(pendingId)
             }
         } catch (e: Exception) {

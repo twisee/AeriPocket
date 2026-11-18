@@ -24,7 +24,7 @@ class LedgerCsvExporterTest {
         assertEquals("1970-01-01 08:00:00", rows[1][0])
         assertEquals("35.00", rows[1][3])
         assertEquals("餐饮", rows[1][2])
-        assertEquals(12, rows[1].size)
+        assertEquals(13, rows[1].size)
     }
     @Test fun `refund events do not double count and original gross net remain distinct`() {
         val original = tx(10000).copy(refundedCents = 2500, aaShares = 2, budgetExcluded = true)

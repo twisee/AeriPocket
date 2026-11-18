@@ -30,6 +30,7 @@ fun EcoBudgetSheet(
     currentCents: Long,
     onSave: (Long) -> Unit,
     onDismiss: () -> Unit,
+    minimumCents: Long = 0,
 ) {
     var text by remember(currentCents) {
         mutableStateOf(if (currentCents > 0) Money.formatCents(currentCents) else "")
@@ -55,6 +56,8 @@ fun EcoBudgetSheet(
                 val cents = Money.parseCents(text.trim())
                 if (cents == null || cents <= 0) {
                     error = "请输入有效金额"
+                } else if (cents < minimumCents) {
+                    error = "总预算不能低于已划分的体验额度"
                 } else {
                     onSave(cents)
                 }
@@ -66,7 +69,7 @@ fun EcoBudgetSheet(
             if (currentCents > 0) {
                 EcoDangerButton(
                     text = "清除预算",
-                    onClick = { onSave(0) },
+                    onClick = { if (minimumCents > 0) error = "本期已划入体验额度，暂不能清除总预算" else onSave(0) },
                     modifier = Modifier.weight(1f),
                 )
             }

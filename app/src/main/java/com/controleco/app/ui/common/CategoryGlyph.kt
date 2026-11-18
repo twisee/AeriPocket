@@ -43,6 +43,22 @@ enum class Glyph(val label: String) {
     SVG_SALARY("工资袋"),
     SVG_GAME("游戏手柄"),
     SVG_DAILY("日用瓶"),
+    PRESET_TRANSPORT("交通"),
+    PRESET_MEDICAL("医疗"),
+    PRESET_HOUSING("住房"),
+    PRESET_PHONE("通讯"),
+    PRESET_STUDY("学习"),
+    PRESET_ENTERTAINMENT("娱乐"),
+    PRESET_TRAVEL("旅行"),
+    PRESET_SPORT("运动"),
+    PRESET_GIFT("人情"),
+    PRESET_PET("宠物"),
+    PRESET_BORROW("借款"),
+    PRESET_REPAY("还款"),
+    PRESET_INSURANCE("保险"),
+    PRESET_BABY("育儿"),
+    PRESET_CHARITY("公益"),
+    PRESET_OTHER("其他"),
     // 自绘几何图形
     BURGER("汉堡"),
     BOWL("碗"),
@@ -100,6 +116,8 @@ private val KEYWORDS: List<Pair<List<String>, Glyph>> = listOf(
 
 /** 分类名 → 形状：先关键词，再按名字哈希稳定取形 */
 fun glyphForName(categoryName: String): Glyph {
+    if (categoryName.trim() == "日常") return Glyph.SVG_DAILY
+    com.controleco.app.data.CategoryPresets.forName(categoryName)?.let { preset -> return Glyph.valueOf(preset.glyphName) }
     KEYWORDS.firstOrNull { (words, _) -> words.any { categoryName.contains(it) } }?.let { return it.second }
     val shapes = Glyph.entries.filter { it != Glyph.DOTS && it != Glyph.RED_PACKET }
     var h = 7
@@ -130,19 +148,19 @@ fun CategoryGlyph(categoryName: String, size: Dp = 40.dp) {
 /** 指定图形的渲染（图标选择器、自定义图标、默认标记共用） */
 @Composable
 fun GlyphIcon(glyph: Glyph, tint: Color, size: Dp = 40.dp) {
+    val preset = remember(glyph) { com.controleco.app.data.CategoryPresets.pathForGlyph(glyph.name) }
+    val data = preset ?: glyph.svgData
     Box(Modifier.size(size), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(size * 0.62f)) { drawGlyph(glyph, tint) }
+        Canvas(Modifier.size(size * 0.56f)) {
+            if (data == null) drawGlyph(glyph, tint)
+            else drawFittedGlyph(data, tint, if (preset == null) 0f else 1.6f)
+        }
     }
 }
 
 // ---------- 各形状画法：统一画在 s×s 画布里 ----------
 
 private fun DrawScope.drawGlyph(glyph: Glyph, color: Color) {
-    val svg = glyph.svgData
-    if (svg != null) {
-        drawSvgGlyph(svg, color)
-        return
-    }
     val s = size.minDimension
     val w = s * 0.15f
     val stroke = Stroke(width = w, cap = StrokeCap.Round)
@@ -436,17 +454,23 @@ private fun svgPathOf(data: String): Path = svgPathCache.getOrPut(data) {
     runCatching { PathParser().parsePathString(data).toPath() }.getOrElse { Path() }
 }
 
-/** 把 960×960 的 viewBox（x∈[0,960]，y∈[-960,0]）等比缩放到当前画布并居中 */
-private fun DrawScope.drawSvgGlyph(data: String, color: Color) {
-    val s = size.minDimension
-    val k = s / GlyphPaths.VIEWPORT
-    val half = GlyphPaths.VIEWPORT / 2f
+/** 图标按实际图形边界等比缩放，消除不同素材的透明边距差异。 */
+private fun DrawScope.drawFittedGlyph(data: String, color: Color, strokeWidth: Float) {
+    val path = svgPathOf(data)
+    val bounds = path.getBounds()
+    val extent = maxOf(bounds.width, bounds.height) + strokeWidth
+    if (extent <= 0f) return
+    val factor = size.minDimension / extent
     withTransform({
         translate(size.width / 2f, size.height / 2f)
-        scale(k, k, pivot = Offset.Zero)
-        // 该坐标系原点在左上、y 向下为负：先把中心 (480,-480) 平移到原点
-        translate(-half, half)
+        scale(factor, factor, pivot = Offset.Zero)
+        translate(-bounds.center.x, -bounds.center.y)
     }) {
-        drawPath(svgPathOf(data), color)
+        if (strokeWidth == 0f) drawPath(path, color)
+        else drawPath(path, color, style = Stroke(
+            width = strokeWidth,
+            cap = StrokeCap.Round,
+            join = androidx.compose.ui.graphics.StrokeJoin.Round,
+        ))
     }
 }

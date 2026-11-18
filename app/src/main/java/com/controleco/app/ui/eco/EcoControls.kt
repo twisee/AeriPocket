@@ -481,6 +481,7 @@ fun EcoCategoryTile(
     glyphScale: Float = 0.72f,
     /** 账单列表里的分类 logo 按用户要求去掉所有底色与描边，只留图形本身 */
     bare: Boolean = false,
+    showBorder: Boolean = true,
 ) {
     val c = MaterialTheme.eco
     val explicit = CategoryIcon.glyphColorOf(icon)?.let { Color(it or 0xFF000000.toInt()) }
@@ -495,7 +496,7 @@ fun EcoCategoryTile(
                     Modifier
                         .clip(RoundedCornerShape(radius))
                         .background(tint.copy(alpha = if (c.isDark) 0.22f else 0.12f))
-                        .border(1.dp, tint.copy(alpha = 0.18f), RoundedCornerShape(radius))
+                        .then(if (showBorder) Modifier.border(1.dp, tint.copy(alpha = 0.18f), RoundedCornerShape(radius)) else Modifier)
                 },
             ),
         contentAlignment = Alignment.Center,

@@ -65,8 +65,8 @@ class Home50IntegrationUiTest {
             ui.waitForIdle()
             shot("home_$percent")
         }
-        ui.onNodeWithTag("homeOverview").performClick()
-        ui.runOnIdle { assertEquals(1, overviewOpens) }
+        ui.onNodeWithTag("homeOverview").assertDoesNotExist()
+        ui.runOnIdle { assertEquals(0, overviewOpens) }
     }
     @Test fun enabledAnimationsKeepClickBlinkAndReturnToOpenEyes() {
         var motion by mutableStateOf(true)
@@ -94,7 +94,7 @@ class Home50IntegrationUiTest {
         ui.mainClock.autoAdvance = true
         ui.runOnIdle { motion = false }
     }
-    @Test fun heldPressReboundsAndDraggingStillOpensOverview() {
+    @Test fun heldPressReboundsAndVerticalDraggingNoLongerNavigates() {
         var overviewOpens = 0
         ui.setContent { AccBookTheme(accent = EcoAccent.White) {
             CompositionLocalProvider(LocalAnimationsEnabled provides true) {
@@ -130,7 +130,7 @@ class Home50IntegrationUiTest {
         assertTrue("Repeated tap does not prolong closed eyes", facePixels(original).sameAs(facePixels(pixels("pointer_repeat_open"))))
         ui.onNodeWithText("¥1000.00  /  ¥2000.00").assertExists()
         ui.onNodeWithTag("homeCharacter").performTouchInput { swipeUp() }
-        ui.runOnIdle { assertEquals("Character press must yield to the overview swipe", 1, overviewOpens) }
+        ui.runOnIdle { assertEquals("Homepage vertical dragging must not navigate", 0, overviewOpens) }
         ui.mainClock.autoAdvance = true
     }
 }

@@ -10,7 +10,7 @@ data class LedgerExportSnapshot(val transactions: List<TransactionEntity>, val c
 
 /** Generic CSV preserves original and refunded/net amounts separately; never exports raw refund events as income. */
 object LedgerCsvExporter {
-    val headers = listOf("日期时间", "收支", "分类", "金额", "商户", "备注", "来源", "已退款金额", "实付金额", "退款状态", "AA人数", "是否计入预算")
+    val headers = listOf("日期时间", "收支", "分类", "金额", "商户", "备注", "来源", "已退款金额", "实付金额", "退款状态", "AA人数", "是否计入预算", "预算归属")
 
     fun write(snapshot: LedgerExportSnapshot, writer: Writer, zone: ZoneId = ZoneId.systemDefault()) {
         writer.write("\uFEFF")
@@ -32,7 +32,8 @@ object LedgerCsvExporter {
                 }, money(refund), money(net), when {
                     refund >= tx.amountCents && tx.type == TxType.EXPENSE -> "已全额退款"
                     refund > 0 -> "已部分退款"; else -> "无退款"
-                }, if(tx.aaShares >= 2) tx.aaShares.toString() else "", if(tx.budgetExcluded) "否" else "是"))
+                }, if(tx.aaShares >= 2) tx.aaShares.toString() else "", if(tx.budgetExcluded) "否" else "是",
+                when { tx.type != TxType.EXPENSE -> "收入"; tx.experienceBudget -> "体验预算"; tx.budgetExcluded -> "不计预算"; else -> "日常预算" }))
         }
     }
 

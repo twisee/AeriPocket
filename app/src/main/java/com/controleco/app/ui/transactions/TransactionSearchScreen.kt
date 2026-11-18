@@ -111,7 +111,7 @@ fun TransactionSearchScreen(
             categoryIds = categoryIds,
         )
     }
-    val results = remember(rowsReady, query) { searchBills(rowsReady, query) }
+    val results = remember(rowsReady, query, categories) { searchBills(rowsReady, query, categories.filter { com.controleco.app.data.db.CategoryRules.isRefundIncome(it.type, it.name) }.map { it.id }.toSet()) }
     val sorted = remember(results, sort) { sortBills(results, sort) }
     // 时间排序：按天分组；金额排序：平铺 + 行内补日期（与账单页同一口径）
     val byDay = sort.groupedByDay

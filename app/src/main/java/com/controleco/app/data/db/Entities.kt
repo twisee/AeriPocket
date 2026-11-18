@@ -94,6 +94,9 @@ data class TransactionEntity(
      */
     @ColumnInfo(defaultValue = "0")
     val budgetExcluded: Boolean = false,
+    /** Experience expenses never consume daily budget. */
+    @ColumnInfo(defaultValue = "0")
+    val experienceBudget: Boolean = false,
     /**
      * 「AA 支出」人数 n（0 = 未开启）：计入预算的金额 = 金额 ÷ n（四舍五入到分）。
      * 同时勾了「不计入预算」时以不计入优先（计入 0）。n 的合法区间见 [com.controleco.app.data.budget.BudgetShare]。

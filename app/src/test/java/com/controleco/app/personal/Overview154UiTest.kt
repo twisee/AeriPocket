@@ -106,7 +106,7 @@ class Overview154UiTest {
         ui.onNodeWithTag("statsCategoryAmount:餐饮",useUnmergedTree=true).assertTextEquals("¥180")
         ui.onNodeWithText("占全部消费 60%").assertIsDisplayed()
         ui.onNodeWithTag("statsCategoryProgress:餐饮",useUnmergedTree=true).assertDoesNotExist()
-        ui.onNodeWithText("其中不计预算").assertIsDisplayed()
+        ui.onNodeWithText("体验及不计预算").assertIsDisplayed()
         shot("all-spending")
         ui.onNodeWithTag("statsCategoryRow:餐饮").performClick()
         ui.onNode(hasText("¥60.00") and hasAnyAncestor(hasTestTag("statsDonutRightAmount")),useUnmergedTree=true).assertExists()

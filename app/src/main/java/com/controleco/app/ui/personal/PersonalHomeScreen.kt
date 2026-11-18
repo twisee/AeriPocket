@@ -2,7 +2,6 @@ package com.controleco.app.ui.personal
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -33,6 +32,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.controleco.app.data.LedgerViewModel
+import com.controleco.app.data.budget.Budget
 import com.controleco.app.ui.eco.LocalAnimationsEnabled
 import com.controleco.app.ui.eco.EcoAutoMoney
 import com.controleco.app.ui.theme.eco
@@ -56,11 +56,14 @@ private class TapReward(val origin: Offset) {
 fun PersonalHomeScreen(vm: LedgerViewModel, onOverview: () -> Unit) {
     val spent by vm.homeSpent.collectAsStateWithLifecycle()
     val budget by vm.monthlyBudgetCents.collectAsStateWithLifecycle()
-    PersonalHome(spent, budget, onOverview)
+    val today by vm.today.collectAsStateWithLifecycle()
+    val period by vm.currentPeriod.collectAsStateWithLifecycle()
+    val remainingDaily = spent?.let { Budget.compute(budget, it, today, period = period)?.suggestedDailyCents }
+    PersonalHome(spent, budget, remainingDaily, onOverview)
 }
 
 @Composable
-internal fun PersonalHome(spent: Long?, budget: Long, onOverview: () -> Unit) {
+internal fun PersonalHome(spent: Long?, budget: Long, remainingDaily: Long? = null, onOverview: () -> Unit) {
     val c = MaterialTheme.eco
     val context = LocalContext.current
     val motion = LocalAnimationsEnabled.current
@@ -182,16 +185,7 @@ internal fun PersonalHome(spent: Long?, budget: Long, onOverview: () -> Unit) {
             }
         }
     }
-    var drag by remember { mutableFloatStateOf(0f) }
-    val dragOffset by animateFloatAsState(if (motion) drag.coerceIn(-130f, 100f) * .25f else 0f,
-        animationSpec = tween(90), label = "home-drag-follow")
-    Box(Modifier.fillMaxSize().graphicsLayer { translationY = dragOffset }.padding(bottom = 78.dp).navigationBarsPadding()
-        .background(c.paper)
-        .pointerInput(onOverview) {
-            detectVerticalDragGestures(onDragStart = { drag = 0f }, onVerticalDrag = { _, y -> drag += y },
-                onDragCancel = { drag = 0f },
-                onDragEnd = { if (drag < -80.dp.toPx()) onOverview() else drag = 0f })
-        }) {
+    Box(Modifier.fillMaxSize().padding(bottom = 78.dp).navigationBarsPadding().background(c.paper)) {
         Canvas(Modifier.fillMaxSize().padding(top = 200.dp).onSizeChanged { sceneSize = it }.semantics {
                 contentDescription = if (atlas == null) "正在读取角色" else "爱丽丝，预算使用阶段 $displayedStage%"
                 if (atlas == null) disabled()
@@ -246,6 +240,17 @@ internal fun PersonalHome(spent: Long?, budget: Long, onOverview: () -> Unit) {
                     color = c.ink, fontSize = if (budget > 0) 49.sp else 32.sp, fontWeight = FontWeight.Light, letterSpacing = (-2).sp)
                 Spacer(Modifier.width(10.dp))
                 Text(if (budget > 0) "已用" else "月预算", color = c.muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 10.dp))
+                if (remainingDaily != null) {
+                    Spacer(Modifier.weight(1f).widthIn(min = 6.dp))
+                    EcoAutoMoney(
+                        text = "剩余日均 ${Money.formatYuanGroupedFixed(remainingDaily)}",
+                        style = TextStyle(fontSize = 11.sp),
+                        color = c.muted,
+                        modifier = Modifier.widthIn(max = 154.dp).padding(bottom = 10.dp).testTag("homeRemainingDaily"),
+                        minSize = 9.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    )
+                }
             }
             Spacer(Modifier.height(10.dp))
             Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(c.rule)) {
@@ -263,29 +268,6 @@ internal fun PersonalHome(spent: Long?, budget: Long, onOverview: () -> Unit) {
                     suffix = "  /  ${Money.formatYuan(budget)}", suffixStyle = SpanStyle(color = c.muted, fontWeight = FontWeight.Normal))
             }
         }
-        Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp).width(140.dp).height(32.dp)
-            .clip(CircleShape).border(1.dp, Color.White.copy(alpha = .7f), CircleShape)
-            .clickable(onClick = onOverview).testTag("homeOverview")) {
-            Canvas(Modifier.matchParentSize().graphicsLayer { renderEffect = BlurEffect(14f, 14f) }) {
-                val current = atlas
-                if (current != null && sceneSize.height > 0) {
-                    val width = sceneSize.width.toFloat(); val height = sceneSize.height.toFloat()
-                    val cropX = (width - size.width) / 2
-                    val cropY = height - with(density) { 16.dp.toPx() } - size.height
-                    translate(-cropX, -cropY) {
-                        drawRect(Brush.verticalGradient(listOf(c.paper, c.surfaceInset), endY = height), size = Size(width,height))
-                        val place = current.placement(width, height, displayedStage, blink, 12.dp.toPx(), 8.dp.toPx())
-                        scale(pressScale.coerceIn(.965f, 1f), pivot = Offset(width / 2, (place.top + place.side).toFloat())) {
-                            drawImage(current.image,srcOffset=IntOffset(if(blink) current.frameWidth else 0,0),
-                                srcSize=IntSize(current.frameWidth,current.image.height),dstOffset=IntOffset(place.left,place.top),
-                                dstSize=IntSize(place.side,place.side),filterQuality=FilterQuality.Low)
-                        }
-                    }
-                }
-            }
-            Box(Modifier.matchParentSize().background(c.surface.copy(alpha=.55f)), contentAlignment = Alignment.Center) {
-                Text("⌃  上滑查看概览", color = c.ink, fontSize = 11.sp)
-            }
-        }
+
     }
 }

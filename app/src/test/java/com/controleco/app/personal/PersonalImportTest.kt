@@ -21,15 +21,17 @@ class PersonalImportTest {
         assertEquals(1, bill.skippedStatus)
         assertEquals(2500L, bill.rows.first().refundedCents)
     }
-    @Test fun earningsAndExplicitReceiptsAreIncomeButPrincipalIsNot() {
+    @Test fun skipsYuebaoYieldButKeepsOtherIncomeAndYuebaoPurchases() {
         val bill = parse(
             "2026-10-01 12:00:00,投资理财,收益,,余额宝收益发放,不计收支,0.02,余额,交易成功,YIELD,,",
+            "2026-10-02 11:00:00,投资理财,示例货币基金,,余额宝-2026.10.02-收益发放,收入,0.04,余额宝,交易成功,DATED_YIELD,,",
             "2026-10-02 12:00:00,转账,朋友,,转账收款,不计收支,100.00,余额,交易成功,RECEIPT,,",
+            "2026-10-02 12:00:00,投资理财,示例银行,,活期收益发放,收入,1.00,余额,交易成功,BANK_INTEREST,,",
+            "2026-10-02 12:00:00,购物,示例商户,,日用品,支出,10.00,余额宝,交易成功,PURCHASE,,",
             "2026-10-02 12:00:00,投资理财,余额宝,,转入余额宝,不计收支,100.00,余额,交易成功,PRINCIPAL,,")
-        assertEquals(2, bill.rows.size)
-        assertTrue(bill.rows.all { it.type == TxType.INCOME })
-        assertEquals("理财", bill.rows.first().guessedCategoryName)
-        assertEquals(1, bill.skippedOtherType)
+        assertEquals(listOf("RECEIPT", "BANK_INTEREST", "PURCHASE"), bill.rows.map { it.externalId })
+        assertEquals(listOf(TxType.INCOME, TxType.INCOME, TxType.EXPENSE), bill.rows.map { it.type })
+        assertEquals(3, bill.skippedOtherType)
     }
     @Test fun partialRefundsAccumulateWithoutGuessingAndAreIdempotent() {
         val original = TransactionEntity(id=1, type=TxType.EXPENSE, amountCents=10000, categoryId=1, accountId=1,
@@ -54,8 +56,8 @@ class PersonalImportTest {
             source=TxSource.ALIPAY, externalId=row.externalId, refundMark=row.refundMark, refundedCents=row.refundedCents) }
         val updates = RefundReconciler.updates(rows).associateBy { it.id }
         val all = rows.map { updates[it.id] ?: it }
-        assertEquals(333, all.size)
-        assertEquals(138, all.count { it.type == TxType.INCOME && it.refundMark != RefundMark.REFUND_INCOME })
+        assertEquals(203, all.size)
+        assertEquals(8, all.count { it.type == TxType.INCOME && it.refundMark != RefundMark.REFUND_INCOME })
         val refunds = all.filter { it.refundMark == RefundMark.REFUND_INCOME }
         assertEquals(6, refunds.size)
         refunds.forEachIndexed { i, r ->
@@ -64,7 +66,7 @@ class PersonalImportTest {
         }
         assertTrue(refunds.all { it.refundExpenseId > 0 })
         assertEquals(6, all.count { it.refundMark == RefundMark.REFUNDED_EXPENSE })
-        assertEquals(130, bill.rows.count { (it.goods.contains("余额宝") && it.goods.contains("收益发放")) && it.type == TxType.INCOME })
+        assertTrue(bill.rows.none { it.goods.startsWith("余额宝") && it.goods.endsWith("收益发放") })
         assertTrue(bill.rows.any { it.goods.contains("转账收款") && it.type == TxType.INCOME })
         println("Private bill: rows=${all.size}, refunds=${refunds.size}, exact links=${refunds.count { it.refundExpenseId > 0 }}; no transaction details logged")
     }

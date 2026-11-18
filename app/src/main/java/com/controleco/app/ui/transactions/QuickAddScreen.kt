@@ -117,6 +117,8 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
     var counterparty by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     // 预算口径（只对支出）：不计入预算 / AA 支出人数
+    val vault by vm.experienceVault.collectAsStateWithLifecycle()
+    var experienceBudget by remember { mutableStateOf(false) }
     var budgetExcluded by remember { mutableStateOf(false) }
     var aaEnabled by remember { mutableStateOf(false) }
     var aaSharesText by remember { mutableStateOf("") }
@@ -175,6 +177,7 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
                 vm.saveTransaction(
                     -1L, type, amount, categoryId!!, accountId!!, ts, note.trim(), counterparty.trim(),
                     budgetExcluded = budgetExcluded,
+                    experienceBudget = experienceBudget,
                     aaShares = shares ?: 0,
                     rememberMerchantCategory = rememberMerchantCategory,
                     onResult = { message ->
@@ -236,7 +239,8 @@ fun QuickAddScreen(vm: LedgerViewModel, onBack: () -> Unit) {
                     aaEnabled = aaEnabled, onAaEnabledChange = {
                         aaEnabled = it
                         if(it && BudgetShare.parseShares(aaSharesText) == null) aaSharesText = BudgetShare.DEFAULT_AA_SHARES.toString()
-                    }, sharesText = aaSharesText, onSharesTextChange = { aaSharesText = it }, compact = true)
+                    }, sharesText = aaSharesText, onSharesTextChange = { aaSharesText = it }, compact = true,
+                    experienceAvailable = vault.enabled, experienceBudget = experienceBudget, onExperienceBudgetChange = { experienceBudget = it })
             }
             Spacer(Modifier.height(16.dp))
         }

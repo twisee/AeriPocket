@@ -104,10 +104,13 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
     var counterparty by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     // 预算口径（只对支出）：不计入预算 / AA 支出人数
+    val vault by vm.experienceVault.collectAsStateWithLifecycle()
+    var experienceBudget by remember { mutableStateOf(false) }
     var budgetExcluded by remember { mutableStateOf(false) }
     var aaEnabled by remember { mutableStateOf(false) }
     var aaSharesText by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var showRefundAmount by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var rememberMerchantCategory by remember { mutableStateOf(false) }
@@ -125,6 +128,7 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
             timeOfDay = local.toLocalTime()
             counterparty = t.counterparty
             note = t.note
+            experienceBudget = t.experienceBudget
             budgetExcluded = t.budgetExcluded
             aaEnabled = t.aaShares >= BudgetShare.MIN_AA_SHARES
             aaSharesText = if (aaEnabled) t.aaShares.toString() else ""
@@ -155,7 +159,7 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
         type == record.type && cents == record.amountCents && categoryId == record.categoryId &&
             accountId == record.accountId && date == local.toLocalDate() && timeOfDay == local.toLocalTime() &&
             counterparty.trim() == record.counterparty.trim() && note.trim() == record.note.trim() &&
-            budgetExcluded == record.budgetExcluded &&
+            budgetExcluded == record.budgetExcluded && experienceBudget == record.experienceBudget &&
             (if (aaEnabled) BudgetShare.parseShares(aaSharesText) else 0) == record.aaShares
     } == true
     val c = MaterialTheme.eco
@@ -181,6 +185,7 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
                 vm.saveTransaction(
                     txId, type, value, categoryId!!, accountId!!, ts, note.trim(), counterparty.trim(),
                     budgetExcluded = budgetExcluded,
+                    experienceBudget = experienceBudget,
                     aaShares = shares ?: 0,
                     rememberMerchantCategory = rememberMerchantCategory,
                     onResult = { message ->
@@ -198,13 +203,19 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
     fun refund() {
         if(saving) return
         if(!unchanged) { EcoToast.show("请先保存修改，再操作退款"); return }
-        val refunded = (existing?.refundedCents ?: 0L) > 0L
+        showRefundAmount = true
+    }
+
+    fun undoRefund() {
+        if (saving) return
+        if (!unchanged) { EcoToast.show("请先保存修改，再操作退款"); return }
+        val refunded = true
         saving = true
         val done: (String?) -> Unit = { message ->
             saving = false
             if(message == null) { EcoToast.show(if(refunded) "已撤销退款" else "已退款"); onBack() } else error = message
         }
-        if(refunded) vm.undoRefund(txId, done) else vm.refundExpense(txId, done)
+        vm.undoRefund(txId, done)
     }
 
     if(txId > 0 && existing == null) {
@@ -218,8 +229,14 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
         EcoTopBar(micro = "EDIT ENTRY", title = "编辑记录", onBack = onBack, action = {
             if(txId > 0 && existing != null) {
                 if(existing?.type == TxType.EXPENSE && type == TxType.EXPENSE) {
-                    EcoTextAction(if((existing?.refundedCents ?: 0L) > 0L) "撤销退款" else "退款", onClick = ::refund, enabled = !saving)
-                    Spacer(Modifier.width(8.dp))
+                    if ((existing?.refundedCents ?: 0L) < (existing?.amountCents ?: 0L)) {
+                        EcoTextAction(if ((existing?.refundedCents ?: 0L) > 0L) "继续退款" else "退款", onClick = ::refund, enabled = !saving)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    if ((existing?.refundedCents ?: 0L) > 0L) {
+                        EcoTextAction("撤销退款", onClick = ::undoRefund, enabled = !saving)
+                        Spacer(Modifier.width(8.dp))
+                    }
                 }
                 EcoTextAction("删除", onClick = { showDeleteConfirm = true }, color = c.clay, enabled = !saving)
             }
@@ -231,7 +248,7 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
                     Text(if(type == TxType.EXPENSE) "支出" else "收入", color = c.ink)
                 } else EcoFilterStrip(options = listOf("支出", "收入"), selectedIndex = if(type == TxType.EXPENSE) 0 else 1,
                     onSelect = { type = if(it == 0) TxType.EXPENSE else TxType.INCOME; manualCategory = false; rememberMerchantCategory = false
-                        if(type == TxType.INCOME) { budgetExcluded = false; aaEnabled = false } })
+                        if(type == TxType.INCOME) { budgetExcluded = false; experienceBudget = false; aaEnabled = false } })
             }
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.Center) {
@@ -269,7 +286,8 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
                     TxBudgetOptions(budgetExcluded, { budgetExcluded = it }, aaEnabled, {
                         aaEnabled = it
                         if(it && BudgetShare.parseShares(aaSharesText) == null) aaSharesText = BudgetShare.DEFAULT_AA_SHARES.toString()
-                    }, aaSharesText, { aaSharesText = it }, compact = true)
+                    }, aaSharesText, { aaSharesText = it }, compact = true,
+                        experienceAvailable = vault.enabled, experienceBudget = experienceBudget, onExperienceBudgetChange = { experienceBudget = it })
                 }
             }
             existing?.let { record ->
@@ -290,6 +308,18 @@ fun EditTransactionScreen(vm: LedgerViewModel, txId: Long, onBack: () -> Unit) {
         EcoPrimaryButton(if(txId > 0) "保存修改" else "保存", onClick = ::save, enabled = valid,
             modifier = Modifier.padding(horizontal = 22.dp, vertical = 13.dp))
         Spacer(Modifier.navigationBarsPadding())
+    }
+
+    if (showRefundAmount && existing != null) {
+        com.controleco.app.ui.refund.RefundAmountSheet(
+            remaining = existing!!.amountCents - existing!!.refundedCents,
+            onDismiss = { showRefundAmount = false }, onRefund = { amount ->
+                showRefundAmount = false; saving = true
+                vm.refundExpense(txId, { message ->
+                    saving = false
+                    if (message == null) { EcoToast.show("已登记退款"); onBack() } else error = message
+                }, amountCents = amount)
+            })
     }
 
     if (showDeleteConfirm && existing != null) {

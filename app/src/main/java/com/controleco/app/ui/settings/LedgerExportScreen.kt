@@ -92,7 +92,7 @@ internal fun LedgerExportScreen(vm: LedgerViewModel, onBack: () -> Unit) {
         SettingsSection("文件内容", aside = "CONTENTS")
         SettingsPane {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                listOf("日期时间、收支、分类、金额（原金额）", "商户、备注、来源", "已退款金额、实付金额、退款状态", "AA 人数、是否计入预算").forEach {
+                listOf("日期时间、收支、分类、金额（原金额）", "商户、备注、来源", "已退款金额、实付金额、退款状态", "AA 人数、是否计入预算、预算归属").forEach {
                     Text(it, fontSize = 12.sp, color = c.ink)
                 }
             }

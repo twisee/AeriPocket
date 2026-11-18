@@ -12,6 +12,8 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -54,6 +56,7 @@ import com.controleco.app.ui.keepalive.KeepAliveScreen
 import com.controleco.app.ui.pending.PendingScreen
 import com.controleco.app.ui.profile.ProfileScreen
 import com.controleco.app.ui.profile.RewardScreen
+import com.controleco.app.ui.profile.SpendingTrendScreen
 import com.controleco.app.ui.refund.RefundLinkScreen
 import com.controleco.app.ui.settings.SettingsAboutScreen
 import com.controleco.app.ui.settings.SettingsAccountScreen
@@ -213,9 +216,17 @@ fun AccBookNav(
                 onOpenSearch = { navController.navigate("search") },
                 onOpenCategories = { navController.navigate("categories") },
                 onOpenReward = { navController.navigate("reward") },
+                onOpenSpendingTrend = { navController.navigate("spendingTrend/false") },
             )
         }
         composable("quickAdd") { QuickAddScreen(vm = vm, onBack = { navController.popBackStack() }) }
+        // Preserve the destination ID for navigation state restored from 1.6.5.
+        composable("spendingTrend/{yearly}") {
+            SpendingTrendScreen(
+                vm = vm,
+                onBack = { navController.popBackStack() },
+            )
+        }
         // 账单搜索页：范围是当前会计周期（与账单页同一份 periodRows），结果点行进编辑页
         composable("search") {
             TransactionSearchScreen(
@@ -376,10 +387,6 @@ fun AccBookNav(
     }
 }
 
-/** tab 切换的位移动画时长：只做整体上移，不做两页交叉淡入 */
-private const val TAB_SWITCH_MS = 220
-/** 新页进入时上移的距离 */
-private const val TAB_RISE_DP = 10
 
 @Composable
 private fun MainScaffold(
@@ -393,74 +400,42 @@ private fun MainScaffold(
     onOpenSearch: () -> Unit,
     onOpenCategories: () -> Unit,
     onOpenReward: () -> Unit,
+    onOpenSpendingTrend: () -> Unit,
 ) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    val pagerState = rememberPagerState(pageCount = { 4 })
+    val tab by remember { derivedStateOf { pagerState.settledPage } }
     // 再次点击当前标签 → 计数 +1，由页面自己"回到顶部"（列表/滚动页通用）
     var reenterTick by rememberSaveable { mutableIntStateOf(0) }
     val tabStates = rememberSaveableStateHolder()
     var ledgerEntryToken by rememberSaveable { mutableIntStateOf(0) }
     var ledgerEntryDay by rememberSaveable { mutableStateOf<String?>(null) }
     val transitionScope = androidx.compose.runtime.rememberCoroutineScope()
-    val homeExit = remember { Animatable(0f) }
-    var revealingOverview by remember { mutableStateOf(false) }
-    var openingOverview by remember { mutableStateOf(false) }
-
-    // 切 tab 只保留当前页：旧页立即移除，新页整体上移 10dp 就位。
-    // 不做两页叠加/整页 alpha：那会让旧页透出来（重影），还要多一层全屏离屏缓冲，明显掉帧。
-    var hasSwitched by remember { mutableStateOf(false) }
-    // 设置里关掉「显示动画」后，切 tab 直接换页，不做上移
     val animationsEnabled = LocalAnimationsEnabled.current
-    // 首帧即目标值：避免先按 1f 画一帧再归零的闪；启动首帧/关闭动效时不播位移。
-    val pageIn = remember(tab) { Animatable(if (hasSwitched && animationsEnabled) 0f else 1f) }
-    LaunchedEffect(tab, animationsEnabled) {
-        if (!animationsEnabled) {
-            pageIn.snapTo(1f)
-        } else if (pageIn.value < 1f) {
-            pageIn.animateTo(1f, tween(TAB_SWITCH_MS, easing = FastOutSlowInEasing))
+    fun selectPage(index: Int) {
+        transitionScope.launch {
+            if (animationsEnabled) pagerState.animateScrollToPage(index, animationSpec = tween(280, easing = FastOutSlowInEasing))
+            else pagerState.scrollToPage(index)
         }
     }
 
     Box(Modifier.fillMaxSize()) {
-        // 只保留当前页：SaveableStateProvider 按 tab 保存滚动/局部状态，切走再回来仍在。
-        // translationY 在 layer 阶段读取，每帧只改变换矩阵：不重组、不重新测量整页，也不产生离屏 alpha 缓冲。
-        Box(
-            Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    translationY = if (tab == 0) -homeExit.value * 32.dp.toPx()
-                        else (1f - pageIn.value) * (if (revealingOverview) 44.dp.toPx() else TAB_RISE_DP.dp.toPx())
-                    alpha = if (tab == 0) 1f - homeExit.value else if (revealingOverview) pageIn.value else 1f
-                },
-        ) {
-            tabStates.SaveableStateProvider(tab) {
+        MainPagePager(pagerState) { page ->
+            tabStates.SaveableStateProvider(page) {
                 TabPage(
-                    tab = tab,
+                    tab = page,
                     vm = vm,
                     reenterTick = reenterTick,
                     ledgerEntryToken = ledgerEntryToken,
                     ledgerEntryDay = ledgerEntryDay?.let(java.time.LocalDate::parse),
                     onOpenLedger = { month, day ->
-                        vm.setPeriodMode(com.controleco.app.data.PeriodMode.MONTH)
-                        vm.setMonth(month)
-                        ledgerEntryDay = day?.toString()
-                        ledgerEntryToken++
-                        revealingOverview = false
-                        hasSwitched = true
-                        tab = 1
-                    },
-                    onOpenOverview = {
-                        if (!openingOverview) transitionScope.launch {
-                            openingOverview = true
-                            try {
-                                vm.prepareOverview()
-                                if (animationsEnabled) homeExit.animateTo(1f, tween(160, easing = FastOutSlowInEasing))
-                                revealingOverview = true
-                                hasSwitched = true
-                                tab = 2
-                                homeExit.snapTo(0f)
-                            } finally { openingOverview = false }
+                        if (vm.setMonth(month)) {
+                            vm.setPeriodMode(com.controleco.app.data.PeriodMode.MONTH)
+                            ledgerEntryDay = day?.toString()
+                            ledgerEntryToken++
+                            selectPage(1)
                         }
                     },
+                    onOpenOverview = { selectPage(2) },
                     onEditTransaction = onEditTransaction,
                     onOpenAccount = onOpenAccount,
                     onOpenImport = onOpenImport,
@@ -469,6 +444,7 @@ private fun MainScaffold(
                     onOpenSearch = onOpenSearch,
                     onOpenCategories = onOpenCategories,
                     onOpenReward = onOpenReward,
+                    onOpenSpendingTrend = onOpenSpendingTrend,
                 )
             }
         }
@@ -485,9 +461,7 @@ private fun MainScaffold(
                 if (tab == index) {
                     reenterTick++
                 } else {
-                    revealingOverview = false
-                    hasSwitched = true
-                    tab = index
+                    selectPage(index)
                 }
             },
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -526,6 +500,7 @@ private fun TabPage(
     onOpenSearch: () -> Unit,
     onOpenCategories: () -> Unit,
     onOpenReward: () -> Unit,
+    onOpenSpendingTrend: () -> Unit,
 ) {
     when (tab) {
         0 -> com.controleco.app.ui.personal.PersonalHomeScreen(vm, onOpenOverview)
@@ -546,6 +521,7 @@ private fun TabPage(
             onOpenSettings = onOpenSettings,
             onOpenCategories = onOpenCategories,
             onOpenReward = onOpenReward,
+            onOpenSpendingTrend = onOpenSpendingTrend,
         )
     }
 }

@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CaptureTraceEntity::class,
         MerchantRuleEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = true,
 )
 abstract class AccBookDatabase : RoomDatabase() {
@@ -290,6 +290,12 @@ abstract class AccBookDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN experienceBudget INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile
         private var instance: AccBookDatabase? = null
 
@@ -303,7 +309,7 @@ abstract class AccBookDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                         MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
-                        MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15,
+                        MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
                     )
                     .build().also { instance = it }
             }
@@ -320,6 +326,21 @@ object DefaultData {
 
     /** 收入分类：「退款」固定排在「其他」之前（退款是常规收入项，其他是兜底项） */
     val defaultIncomeCategories = listOf("工资", "理财", "红包", RefundCategory.NAME, "其他")
+
+    /** One-time upgrade: preserve existing IDs, assignments and user-chosen icons. */
+    suspend fun seedCommonPresets(db: AccBookDatabase) = db.withTransaction {
+        val dao = db.categoryDao()
+        var categories = dao.getAll()
+        val names = com.controleco.app.data.CategoryPresets.pinnedExpenseNames + com.controleco.app.data.CategoryPresets.all.map { it.name }
+        names.forEachIndexed { index, name ->
+            val existing = categories.firstOrNull { it.type == TxType.EXPENSE && it.name == name }
+            val glyph = com.controleco.app.data.CategoryPresets.forName(name)?.glyphName
+            val icon = glyph?.let { com.controleco.app.data.CategoryIcon.glyph(it) }.orEmpty()
+            if (existing == null) {
+                dao.insert(CategoryEntity(name = name, type = TxType.EXPENSE, sortOrder = index, icon = icon))
+            } else if (existing.icon.isBlank() && icon.isNotEmpty()) dao.update(existing.copy(icon = icon))
+        }
+    }
 
     suspend fun seedIfNeeded(db: AccBookDatabase) = db.withTransaction {
         if (db.accountDao().countAll() == 0) {

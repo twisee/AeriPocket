@@ -142,7 +142,7 @@ class LedgerNavigationUiTest {
         ui.onNodeWithTag("spendingCalendar").performScrollTo()
         val date = month.plusMonths(1).atDay(2)
         ui.onNodeWithTag("spendingDay-$date").performScrollTo().performClick()
-        ui.onNodeWithText("查看 ${date.monthValue}月${date.dayOfMonth}日流水").assertExists()
+        ui.onNodeWithContentDescription("查看 ${date.monthValue}月${date.dayOfMonth}日流水").assertExists()
         ui.onNodeWithTag("confirmSpendingDay").performScrollTo().performClick()
         waitFor { exists("当天没有流水") }
         assertEquals(month, vm.month.value)

@@ -42,7 +42,7 @@ class Help153UiTest {
                 Box(Modifier.fillMaxSize()) { EcoBackdrop();SettingsHelpScreen({}) }
             }
         } }
-        ui.onNodeWithText("新增与补记").assertIsDisplayed()
+        ui.onNodeWithText("新增与补记").performScrollTo().assertIsDisplayed()
         ui.onNodeWithContentDescription("首页预算环：内圆环剩余天数，外圆环剩余预算").assertDoesNotExist()
         shot("entry")
         for(section in listOf("商户与分类","预算与概览","账单导入与导出","自动记账","漏记、重记与兼容性")) {

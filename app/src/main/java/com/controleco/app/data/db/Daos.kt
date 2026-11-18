@@ -30,6 +30,7 @@ data class TransactionRow(
     val createdAt: Long = 0,
     /** 不计入预算（只影响预算口径，不影响余额与「实际支出」；见 `data/budget/BudgetShare.kt`） */
     val budgetExcluded: Boolean = false,
+    val experienceBudget: Boolean = false,
     /** AA 支出人数（0 = 未开启；≥ 2 时计入预算 = 金额 ÷ n） */
     val aaShares: Int = 0,
 )
@@ -71,7 +72,7 @@ interface TransactionDao {
            c.id AS categoryId, c.name AS categoryName, c.icon AS categoryIcon,
            a.id AS accountId, a.name AS accountName,
            t.refundMark AS refundMark, t.refundPending AS refundPending,
-           t.budgetExcluded AS budgetExcluded, t.aaShares AS aaShares,
+           t.budgetExcluded AS budgetExcluded, t.experienceBudget AS experienceBudget, t.aaShares AS aaShares,
            t.refundedCents AS refundedCents, t.createdAt AS createdAt
            FROM transactions t
            JOIN categories c ON t.categoryId = c.id
@@ -129,7 +130,7 @@ interface TransactionDao {
      */
     @Query(
         """SELECT COALESCE(SUM(
-             CASE WHEN budgetExcluded = 1 THEN 0
+             CASE WHEN budgetExcluded = 1 OR experienceBudget = 1 THEN 0
                   WHEN aaShares >= 2 THEN (MAX(0, amountCents - refundedCents) + aaShares / 2) / aaShares
                   ELSE MAX(0, amountCents - refundedCents) END), 0)
            FROM transactions
@@ -145,7 +146,7 @@ interface TransactionDao {
      */
     @Query(
         """SELECT c.id AS categoryId, c.name AS categoryName,
-             SUM(CASE WHEN t.budgetExcluded = 1 THEN 0
+             SUM(CASE WHEN t.budgetExcluded = 1 OR t.experienceBudget = 1 THEN 0
                       WHEN t.aaShares >= 2 THEN (MAX(0, t.amountCents - t.refundedCents) + t.aaShares / 2) / t.aaShares
                       ELSE MAX(0, t.amountCents - t.refundedCents) END) AS totalCents
            FROM transactions t JOIN categories c ON t.categoryId = c.id
@@ -163,6 +164,9 @@ interface TransactionDao {
            GROUP BY a.id"""
     )
     fun observeBalances(): Flow<List<AccountBalanceRow>>
+
+    @Query("SELECT * FROM transactions WHERE experienceBudget = 1 AND type = 'EXPENSE'")
+    fun observeExperienceExpenses(): Flow<List<TransactionEntity>>
 
     @Query("SELECT * FROM transactions")
     suspend fun getAll(): List<TransactionEntity>
@@ -231,7 +235,7 @@ interface TransactionDao {
            c.id AS categoryId, c.name AS categoryName, c.icon AS categoryIcon,
            a.id AS accountId, a.name AS accountName,
            t.refundMark AS refundMark, t.refundPending AS refundPending,
-           t.budgetExcluded AS budgetExcluded, t.aaShares AS aaShares,
+           t.budgetExcluded AS budgetExcluded, t.experienceBudget AS experienceBudget, t.aaShares AS aaShares,
            t.refundedCents AS refundedCents, t.createdAt AS createdAt
            FROM transactions t
            JOIN categories c ON t.categoryId = c.id
@@ -258,7 +262,7 @@ interface TransactionDao {
            c.id AS categoryId, c.name AS categoryName, c.icon AS categoryIcon,
            a.id AS accountId, a.name AS accountName,
            t.refundMark AS refundMark, t.refundPending AS refundPending,
-           t.budgetExcluded AS budgetExcluded, t.aaShares AS aaShares,
+           t.budgetExcluded AS budgetExcluded, t.experienceBudget AS experienceBudget, t.aaShares AS aaShares,
            t.refundedCents AS refundedCents, t.createdAt AS createdAt
            FROM transactions t
            JOIN categories c ON t.categoryId = c.id

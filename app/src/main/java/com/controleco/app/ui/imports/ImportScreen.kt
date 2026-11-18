@@ -66,6 +66,7 @@ import com.controleco.app.data.db.AccountEntity
 import com.controleco.app.data.db.RefundCategory
 import com.controleco.app.data.db.RefundMark
 import com.controleco.app.data.db.TxType
+import com.controleco.app.data.model.BillSource
 import com.controleco.app.data.model.ImportCommitResult
 import com.controleco.app.data.model.ImportedBillRow
 import com.controleco.app.data.model.ParsedBill
@@ -406,9 +407,10 @@ private fun ImportPreviewStage(
                 val incomeCount = bill.rows.count { it.type == TxType.INCOME && it.refundMark != RefundMark.REFUND_INCOME }
                 val refundEvents = bill.rows.count { it.refundMark == RefundMark.REFUND_INCOME }
                 val expenseCount = bill.rows.count { it.type == TxType.EXPENSE }
+                val skippedTypes = if (bill.source == BillSource.ALIPAY) "不计收支或余额宝收益" else "不计收支"
                 Text(
                     "共 ${bill.rows.size} 条（支出 $expenseCount，收入 $incomeCount，退款 $refundEvents）；" +
-                        "已跳过不计收支 ${bill.skippedOtherType} 条、未完成 ${bill.skippedStatus} 条。",
+                        "已跳过$skippedTypes ${bill.skippedOtherType} 条、未完成 ${bill.skippedStatus} 条。",
                     style = EcoType.PageNote,
                     color = c.muted,
                 )

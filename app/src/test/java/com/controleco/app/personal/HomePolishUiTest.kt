@@ -86,9 +86,9 @@ class HomePolishUiTest {
             ui.onNodeWithContentDescription("更换结余卡背景").assertExists()
             shot(if (night) "ledger_dark" else "ledger_light")
             ui.onNodeWithText("年").performClick()
-            waitText("本年结余")
+            waitText("本年花费")
             ui.onNodeWithText("月").performClick()
-            waitText("本月结余")
+            waitText("本月花费")
             ui.onAllNodesWithText("概览").onLast().performClick()
             waitTag("aliceBalanceCard"); waitTag("aliceFloralArtwork")
             ui.onNodeWithContentDescription("更换结余卡背景").assertDoesNotExist()
@@ -108,7 +108,7 @@ class HomePolishUiTest {
         ui.setContent { AccBookTheme(accent = EcoAccent.White) {
             CompositionLocalProvider(LocalAnimationsEnabled provides false) {
                 Column {
-                    AliceBudgetCard(200000, 100000, .5f, "¥", { currencyClicks++ }, { accountClicks++ }, { budgetClicks++ })
+                    AliceBudgetCard(200000, 100000, "¥", { currencyClicks++ }, { accountClicks++ }, { budgetClicks++ })
                     BalanceCard(PeriodMode.MONTH, 400000, 500000, 100000, if (custom) "synthetic-image" else null,
                         if (custom) CardImage(image, null, android.graphics.Color.BLUE, .1f) else null,
                         onModeChange = {}, onOpenImageSettings = {})
@@ -116,10 +116,10 @@ class HomePolishUiTest {
             }
         } }
         waitTag("aliceBalanceCard"); waitTag("aliceFloralArtwork")
-        ui.onNodeWithText("¥").performClick()
+        ui.onNodeWithText("¥").assertDoesNotExist()
         ui.onNodeWithText("账户").assertDoesNotExist()
         ui.onNodeWithContentDescription("设置本月预算").performClick()
-        ui.runOnIdle { assertEquals(1, currencyClicks); assertEquals(0, accountClicks); assertEquals(1, budgetClicks); custom = true }
+        ui.runOnIdle { assertEquals(0, currencyClicks); assertEquals(0, accountClicks); assertEquals(1, budgetClicks); custom = true }
         ui.onNodeWithTag("aliceBalanceCard").assertDoesNotExist()
         ui.onNodeWithTag("aliceBudgetCard").assertExists()
         ui.onNodeWithContentDescription("更换结余卡背景").assertExists()

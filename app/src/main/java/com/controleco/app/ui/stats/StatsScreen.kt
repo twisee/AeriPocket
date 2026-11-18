@@ -194,29 +194,28 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
         ) {
             // 与账单页共用同一个结余封面对象（同一张背景图 / 同一份 VM 状态），随内容滚动
             item(key = "cover") {
-                Box(Modifier.padding(horizontal = 22.dp, vertical = 6.dp)) {
-                    BalanceCard(
-                        mode = mode,
-                        balanceCents = balance,
-                        incomeCents = income,
-                        expenseCents = expense,
-                        imagePath = cardImageUri,
-                        image = cardImage,
-                        transform = cardTransform,
-                        placeholderColor = cardImageColor,
-                        placeholderLuminance = cardImageLuminance,
-                        style = CoverStyleStore.current,
-                        onModeChange = { vm.setPeriodMode(it) },
-                        onOpenImageSettings = {},
-                        showEdit = false,
-                    )
-                }
+                BalanceCard(
+                    mode = mode,
+                    balanceCents = balance,
+                    incomeCents = income,
+                    expenseCents = expense,
+                    imagePath = cardImageUri,
+                    image = cardImage,
+                    transform = cardTransform,
+                    placeholderColor = cardImageColor,
+                    placeholderLuminance = cardImageLuminance,
+                    style = CoverStyleStore.current,
+                    onModeChange = { vm.setPeriodMode(it) },
+                    onOpenImageSettings = {},
+                    showEdit = false,
+                )
             }
 
             item(key = "toolbar") {
                 StatsToolbar(
                     month = month,
                     mode = mode,
+                    canAdvance = mode.canAdvanceFrom(month, currentAccountingMonth),
                     onPrev = { vm.prevPeriod() },
                     onNext = { vm.nextPeriod() },
                     onOpenPicker = { showPicker = true },
@@ -238,7 +237,7 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
                         onOpenLedger(MonthPeriod.monthOf(day, monthStartDay), day)
                     }
                 } else {
-                    SpendingMonthGrid(month.year, monthStartDay, rowsReady) { onOpenLedger(it, null) }
+                    SpendingMonthGrid(month.year, monthStartDay, rowsReady, currentAccountingMonth) { onOpenLedger(it, null) }
                 }
 
             }
@@ -278,7 +277,7 @@ fun StatsScreen(vm: LedgerViewModel, scrollToTopTick: Int = 0, onOpenLedger: (Ye
             mode = mode,
             current = month,
             onSelectMonth = { vm.setMonth(it) },
-            onSelectYear = { vm.setMonth(YearMonth.of(it, month.monthValue)) },
+            onSelectYear = vm::setYear,
             onDismiss = { showPicker = false },
             currentMonth = currentAccountingMonth,
         )
@@ -337,7 +336,7 @@ private fun DonutCard(
                     selected = selected, onSelect = onSelect, ringSize = 150.dp, showCenterLabels = false,
                     display = if (showAllSpending) CategoryDonutDisplay.CONSUMPTION else CategoryDonutDisplay.BUDGET_USAGE)
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                    Text(if (showAllSpending) "其中不计预算" else if (selectedData == null) "分类预算合计" else "分类预算",
+                    Text(if (showAllSpending) "体验及不计预算" else if (selectedData == null) "分类预算合计" else "分类预算",
                         style = EcoType.Micro.copy(fontSize = 8.sp), color = c.quiet, maxLines = 1)
                     Spacer(Modifier.height(2.dp))
                     EcoAutoMoney(text = Money.formatYuanGroupedFixed(if (showAllSpending) excludedCents else selectedData?.budgetCents ?: budgetTotal),
@@ -357,6 +356,7 @@ private fun DonutCard(
 private fun StatsToolbar(
     month: YearMonth,
     mode: PeriodMode,
+    canAdvance: Boolean,
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onOpenPicker: () -> Unit,
@@ -404,7 +404,7 @@ private fun StatsToolbar(
                 maxLines = 1,
             )
         }
-        StepChevron(icon = EcoIcons.Next, description = "下一${mode.label}", onClick = onNext)
+        StepChevron(icon = EcoIcons.Next, description = "下一${mode.label}", onClick = onNext, enabled = canAdvance)
         Spacer(Modifier.weight(1f))
         EcoSegmented(
             options = listOf("月", "年"),
@@ -418,16 +418,16 @@ private fun StatsToolbar(
 }
 
 @Composable
-private fun StepChevron(icon: ImageVector, description: String, onClick: () -> Unit) {
+private fun StepChevron(icon: ImageVector, description: String, onClick: () -> Unit, enabled: Boolean = true) {
     val c = MaterialTheme.eco
     Box(
         Modifier
             .size(width = 27.dp, height = 28.dp)
             .clip(RoundedCornerShape(8.dp))
-            .ecoPressable(scaleTo = 0.92f, onClick = onClick),
+            .ecoPressable(enabled = enabled, scaleTo = 0.92f, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = description, tint = c.muted, modifier = Modifier.size(13.dp))
+        Icon(icon, contentDescription = description, tint = c.muted.copy(alpha = if (enabled) 1f else .35f), modifier = Modifier.size(13.dp))
     }
 }
 
@@ -717,7 +717,7 @@ private fun RatioCard(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 Text(if (showAllSpending) "全部消费分布" else "预算使用", style = EcoType.SectionTitle, color = c.ink,
                     modifier = Modifier.weight(1f))
-                Text(if (showAllSpending) "含不计入预算的支出"
+                Text(if (showAllSpending) "含体验与不计预算的支出"
                     else "${Money.formatYuanGrouped(actualTotal)} / ${Money.formatYuanGrouped(budgetTotal)}",
                     style = EcoType.RowTrail.copy(fontSize = 10.sp), color = c.quiet, maxLines = 1,
                     modifier = Modifier.testTag("statsCategoryTotal"))

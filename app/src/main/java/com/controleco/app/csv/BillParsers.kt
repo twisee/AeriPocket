@@ -153,6 +153,9 @@ object BillParsers {
 
     // ---------- 支付宝 ----------
 
+    private val ALIPAY_YUEBAO_YIELD =
+        Regex("""余额宝[-－—]?(?:\d{4}[./-]\d{1,2}[./-]\d{1,2}[-－—])?收益发放""")
+
     fun parseAlipay(rows: List<List<String>>): ParsedBill {
         val headerIdx = rows.indexOfFirst { row ->
             val cells = row.map { normalize(it) }
@@ -192,14 +195,18 @@ object BillParsers {
 
             val inOut = cell(iInOut)
             val status = cell(iStatus)
+            val goods = cell(iGoods)
+            if (inOut != "支出" && !status.contains("退款") && ALIPAY_YUEBAO_YIELD.matches(normalize(goods))) {
+                skipType++
+                continue
+            }
 
             val type = when {
                 inOut == "收入" -> TxType.INCOME
                 inOut == "支出" -> TxType.EXPENSE
                 // 不计收支中的退款到账行（状态"退款成功"）单独收录，其余（充值/提现/理财）跳过
                 status.contains("退款成功") -> TxType.INCOME
-                status.contains("成功") && (cell(iGoods).contains("余额宝") && cell(iGoods).contains("收益发放")) -> TxType.INCOME
-                status.contains("成功") && cell(iGoods).contains("转账收款") -> TxType.INCOME
+                status.contains("成功") && goods.contains("转账收款") -> TxType.INCOME
                 else -> { skipType++; continue }
             }
 
@@ -225,10 +232,9 @@ object BillParsers {
                 continue
             }
             val counterparty = cell(iCounterparty)
-            val goods = cell(iGoods)
             val note = cell(iNote).ifEmpty { goods }
             val categoryText = if (iCategory >= 0) cell(iCategory) else ""
-            val guessed = if (type == TxType.INCOME && (goods.contains("余额宝") && goods.contains("收益发放"))) "理财" else CategoryGuesser.fromAlipayCategory(categoryText)
+            val guessed = CategoryGuesser.fromAlipayCategory(categoryText)
                 ?: CategoryGuesser.guess("$counterparty $goods")
             parsed += ImportedBillRow(
                 type = type,

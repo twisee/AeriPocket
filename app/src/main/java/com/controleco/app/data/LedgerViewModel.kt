@@ -38,6 +38,8 @@ import com.controleco.app.data.budget.Budget
 import com.controleco.app.data.budget.BudgetShare
 import com.controleco.app.data.budget.CategoryBudgetMath
 import com.controleco.app.data.budget.CategoryBudgetMode
+import com.controleco.app.data.budget.ExperienceVault
+import org.json.JSONObject
 import com.controleco.app.data.budget.MonthPeriod
 import com.controleco.app.data.model.BillSource
 import com.controleco.app.data.model.ImportCommitResult
@@ -46,6 +48,7 @@ import com.controleco.app.update.AppUpdate
 import com.controleco.app.util.AppLog
 import com.controleco.app.util.Money
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -53,6 +56,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -97,9 +101,12 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     val monthStartDay: StateFlow<Int> = _monthStartDay
 
     fun setMonthStartDay(day: Int) {
+        refreshExperienceVault()
         val v = MonthPeriod.clampStartDay(day)
         prefs.edit().putInt(KEY_MONTH_START_DAY, v).apply()
         _monthStartDay.value = v
+        _month.value = minOf(_month.value, latestAccountingMonth())
+        refreshExperienceVault()
         AppLog.i("settings", "monthStartDay=$v")
     }
 
@@ -108,9 +115,11 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
      * 预算周期、今日净支出等一切"以今天为准"的口径都读它，避免零点后还停在昨天。
      */
     private val todayRef = MutableStateFlow(LocalDate.now(zone))
+    val today: StateFlow<LocalDate> = todayRef.asStateFlow()
 
     /** 首页 ON_RESUME 时调用：跨天后把"今天"的统计范围换过来 */
     fun refreshToday() {
+        refreshExperienceVault()
         val now = LocalDate.now(zone)
         if (now != todayRef.value) {
             todayRef.value = now
@@ -148,7 +157,7 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     val dailyBudgetCents: StateFlow<Long> = _dailyBudgetAmount
 
     /** 生效的月预算：按日模式 = 日预算 × 本期天数（跨月自动重算）；否则 = 月金额 */
-    val monthlyBudgetCents: StateFlow<Long> = combine(
+    val totalMonthlyBudgetCents: StateFlow<Long> = combine(
         _monthlyBudgetAmount, _dailyBudgetAmount, _dailyBudgetMode, currentPeriod,
     ) { amount, daily, dailyMode, period ->
         if (dailyMode) daily * period.days else amount
@@ -159,6 +168,81 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     } else {
         _monthlyBudgetAmount.value
     }
+
+    private fun experienceMonth() = YearMonth.from(MonthPeriod.of(LocalDate.now(zone), _monthStartDay.value).start)
+
+    private fun loadExperienceVault(): ExperienceVault {
+        val json = JSONObject(prefs.getString("experience_vault_v1", "{}") ?: "{}")
+        val amounts = json.optJSONObject("grants") ?: JSONObject()
+        return ExperienceVault(
+            enabled = json.optBoolean("enabled"), monthlyCents = json.optLong("monthly"),
+            nextMonthlyCents = if (json.has("next")) json.getLong("next") else null,
+            lastMonth = json.optString("last").takeIf { it.isNotEmpty() }?.let(YearMonth::parse),
+            grants = amounts.keys().asSequence().associate { YearMonth.parse(it) to amounts.getLong(it) },
+            clearedCents = json.optLong("cleared"),
+        ).advance(experienceMonth())
+    }
+
+    private val _experienceVault = MutableStateFlow(loadExperienceVault())
+    val experienceVault: StateFlow<ExperienceVault> = _experienceVault
+
+    private fun persistExperienceVault(state: ExperienceVault) {
+        val grants = JSONObject()
+        state.grants.forEach { (month, cents) -> grants.put(month.toString(), cents) }
+        val json = JSONObject().put("enabled", state.enabled).put("monthly", state.monthlyCents)
+            .put("last", state.lastMonth?.toString().orEmpty()).put("grants", grants).put("cleared", state.clearedCents)
+        state.nextMonthlyCents?.let { json.put("next", it) }
+        check(prefs.edit().putString("experience_vault_v1", json.toString()).commit()) { "保存体验小金库失败" }
+        _experienceVault.value = state
+    }
+
+    @Synchronized
+    fun refreshExperienceVault() {
+        val old = _experienceVault.value
+        val advanced = old.advance(experienceMonth())
+        if (advanced != old) persistExperienceVault(advanced)
+    }
+
+    @Synchronized
+    fun configureExperienceVault(enabled: Boolean, cents: Long): String? = try {
+        require(!enabled || cents <= if (_dailyBudgetMode.value) _dailyBudgetAmount.value * 28 else effectiveMonthlyBudget()) {
+            if (_dailyBudgetMode.value) "按日预算模式下，体验额度不能超过28天总预算" else "体验额度不能超过月总预算"
+        }
+        persistExperienceVault(_experienceVault.value.configure(experienceMonth(), enabled, cents))
+        null
+    } catch (e: Exception) { e.message ?: "保存失败" }
+
+    fun clearExperienceVault(onDone: (String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val spent = withContext(Dispatchers.IO) { txDao.observeExperienceExpenses().first() }
+                    .sumOf { BudgetShare.aaSplitCents((it.amountCents - it.refundedCents).coerceAtLeast(0), it.aaShares) }
+                synchronized(this@LedgerViewModel) {
+                    persistExperienceVault(_experienceVault.value.advance(experienceMonth()).clear(spent))
+                }
+                onDone(null)
+            } catch (e: Exception) { onDone(e.message ?: "清除失败") }
+        }
+    }
+
+    val experienceExpenses = txDao.observeExperienceExpenses()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val experienceAvailableCents: StateFlow<Long> = combine(experienceVault, experienceExpenses) { vault, rows ->
+        vault.available(rows.sumOf { BudgetShare.aaSplitCents((it.amountCents - it.refundedCents).coerceAtLeast(0), it.aaShares) })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), _experienceVault.value.available(0))
+
+    val experienceMonthSpent: StateFlow<Long> = combine(experienceExpenses, currentPeriod) { rows, period ->
+        val (start, end) = period.toMillisRange(zone)
+        rows.filter { it.timestamp >= start && it.timestamp < end }
+            .sumOf { BudgetShare.aaSplitCents((it.amountCents - it.refundedCents).coerceAtLeast(0), it.aaShares) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /** Daily budget is the total envelope less this period's actual experience grant. */
+    val monthlyBudgetCents: StateFlow<Long> = combine(totalMonthlyBudgetCents, experienceVault, currentPeriod) { total, vault, period ->
+        (total - (vault.grants[YearMonth.from(period.start)] ?: 0L)).coerceAtLeast(0)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000),
+        (effectiveMonthlyBudget() - (_experienceVault.value.grants[experienceMonth()] ?: 0L)).coerceAtLeast(0))
 
     /** 月预算输入（金额模式）：cents ≤ 0 视为未设置 */
     fun setMonthlyBudget(cents: Long) {
@@ -188,6 +272,10 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         } else if (!enabled && _monthlyBudgetAmount.value <= 0L && _dailyBudgetAmount.value > 0L) {
             setMonthlyBudget(_dailyBudgetAmount.value * days)
         }
+        val reserved = maxOf(_experienceVault.value.grants[experienceMonth()] ?: 0L,
+            if (_experienceVault.value.enabled) _experienceVault.value.nextMonthlyCents ?: _experienceVault.value.monthlyCents else 0L)
+        if (enabled && _dailyBudgetAmount.value * 28 < reserved) setDailyBudget((reserved + 27) / 28)
+        if (!enabled && _monthlyBudgetAmount.value < reserved) setMonthlyBudget(reserved)
         AppLog.i("settings", "budgetDailyMode=$enabled")
     }
 
@@ -285,6 +373,13 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     val cardTransform: StateFlow<CardTransform> = _cardTransform
 
     init {
+        persistExperienceVault(_experienceVault.value)
+        viewModelScope.launch {
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                refreshToday()
+                kotlinx.coroutines.delay(60_000)
+            }
+        }
         // 冷启动预热：立刻在 IO 线程碰一次数据库，让 SQLite 打开/建连的开销
         // 与 UI 首帧并行，而不是等页面来查时才付（配合"未就绪先不画"减少空白时间）
         viewModelScope.launch(Dispatchers.IO) {
@@ -373,6 +468,11 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         txDao.observeRows(start, end)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    fun observeTrendRows(start: LocalDate, endExclusive: LocalDate): Flow<List<TransactionRow>> {
+        val (from, to) = MonthPeriod(start, endExclusive).toMillisRange(zone)
+        return txDao.observeRows(from, to)
+    }
+
     /**
      * 首页"本日剩余"用：**今日计入预算的支出**（同 [homeSpent] 口径，只是范围是今天）。
      *
@@ -389,7 +489,9 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- 月份 ----------
 
-    private val _month = MutableStateFlow(YearMonth.now(zone))
+    private fun latestAccountingMonth(): YearMonth = MonthPeriod.monthOf(todayRef.value, _monthStartDay.value)
+
+    private val _month = MutableStateFlow(latestAccountingMonth())
     val month: StateFlow<YearMonth> = _month
 
     /** 统计周期：按月 / 按年（账单页与统计页共用） */
@@ -402,7 +504,7 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun prevMonth() { _month.value = _month.value.minusMonths(1) }
-    fun nextMonth() { _month.value = _month.value.plusMonths(1) }
+    fun nextMonth() { setMonth(_month.value.plusMonths(1)) }
 
     /** 步进：月模式走一个月，年模式走一年 */
     fun prevPeriod() {
@@ -414,15 +516,20 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun nextPeriod() {
-        _month.value = if (_periodMode.value == PeriodMode.YEAR) {
-            _month.value.plusYears(1)
-        } else {
-            _month.value.plusMonths(1)
-        }
+        if (_periodMode.value == PeriodMode.YEAR) setYear(_month.value.year + 1) else nextMonth()
     }
 
     /** 直接跳到指定月份（账单页月份胶囊的选择面板） */
-    fun setMonth(m: YearMonth) { _month.value = m }
+    fun setMonth(m: YearMonth): Boolean {
+        if (m > latestAccountingMonth()) return false
+        _month.value = m
+        return true
+    }
+
+    fun setYear(year: Int) {
+        val latest = latestAccountingMonth()
+        if (year <= latest.year) _month.value = minOf(_month.value.withYear(year), latest)
+    }
 
     /**
      * 翻月选中月份（语义 = 会计月开始所在的月）对应的毫秒区间。
@@ -517,6 +624,7 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         counterparty: String = "",
         /** 不计入预算（只对支出生效；收入行强制 false） */
         budgetExcluded: Boolean = false,
+        experienceBudget: Boolean = false,
         /** AA 人数（0 = 未开启；只对支出生效，超出 2..99 会被归一化为 0） */
         aaShares: Int = 0,
         rememberMerchantCategory: Boolean = false,
@@ -536,7 +644,8 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
                         categoryId = categoryId, accountId = accountId, timestamp = timestamp)).copy(
                         type = type, amountCents = amountCents, categoryId = categoryId,
                         accountId = accountId, timestamp = timestamp, note = note, counterparty = counterparty,
-                        budgetExcluded = type == TxType.EXPENSE && budgetExcluded,
+                        budgetExcluded = type == TxType.EXPENSE && budgetExcluded && !experienceBudget,
+                        experienceBudget = type == TxType.EXPENSE && experienceBudget,
                         aaShares = if (type == TxType.EXPENSE) BudgetShare.normalizeShares(aaShares) else 0,
                     )
                     if (old == null) txDao.insert(updated) else {
@@ -827,7 +936,7 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         if (_categoryBudgetMode.value == CategoryBudgetMode.AMOUNT) {
             _categoryBudgetAmounts.value
         } else {
-            val monthly = effectiveMonthlyBudget()
+            val monthly = monthlyBudgetCents.value
             _categoryBudgetPercents.value.mapValues { (_, bp) -> CategoryBudgetMath.centsOf(bp, monthly) }
         }
 
@@ -860,13 +969,12 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * 切换分类预算方案（全局）：切换时按当前月预算换算另一侧的值，
-     * 保证两种方案的读数始终一致（月预算未设置时无法折算，保持原值不动）。
-     * 规则：切到比例 = 有金额的分类重算比例（金额侧是当前事实）；切到金额 = 有比例的分类重算金额。
+     * 切回金额时，若原金额仍对应相同的显示比例，保留原金额的分位精度。
+     * 月预算未设置时保持原值。
      */
     fun setCategoryBudgetMode(mode: CategoryBudgetMode) {
-        prefs.edit().putString(KEY_CAT_BUDGET_MODE, if (mode == CategoryBudgetMode.PERCENT) MODE_PERCENT else MODE_AMOUNT).apply()
-        _categoryBudgetMode.value = mode
-        val monthly = effectiveMonthlyBudget()
+        if (mode == _categoryBudgetMode.value) return
+        val monthly = monthlyBudgetCents.value
         if (monthly > 0L) {
             if (mode == CategoryBudgetMode.PERCENT) {
                 val percents = _categoryBudgetPercents.value.toMutableMap()
@@ -886,6 +994,8 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
                 val amounts = _categoryBudgetAmounts.value.toMutableMap()
                 var changed = false
                 _categoryBudgetPercents.value.forEach { (id, bp) ->
+                    val original = amounts[id]
+                    if (original != null && CategoryBudgetMath.percentOf(original, monthly) == bp) return@forEach
                     val cents = CategoryBudgetMath.centsOf(bp, monthly)
                     if (cents > 0L && amounts[id] != cents) {
                         amounts[id] = cents
@@ -898,6 +1008,8 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+        prefs.edit().putString(KEY_CAT_BUDGET_MODE, if (mode == CategoryBudgetMode.PERCENT) MODE_PERCENT else MODE_AMOUNT).apply()
+        _categoryBudgetMode.value = mode
         AppLog.i("settings", "categoryBudgetMode=$mode")
     }
 
@@ -1288,11 +1400,11 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun refundExpense(expenseId: Long, onDone: (String?) -> Unit) =
-        performRefund("refund expense #$expenseId", onDone) { refundExpense(expenseId) }
+    fun refundExpense(expenseId: Long, onDone: (String?) -> Unit, amountCents: Long? = null) =
+        performRefund("refund expense #$expenseId", onDone) { refundExpense(expenseId, amountCents) }
 
-    fun refundCaptured(pendingId: Long, expenseId: Long, onDone: (String?) -> Unit) =
-        performRefund("refund capture #$pendingId expense #$expenseId", onDone) { refundCaptured(pendingId, expenseId) }
+    fun refundCaptured(pendingId: Long, expenseId: Long, onDone: (String?) -> Unit, amountCents: Long? = null) =
+        performRefund("refund capture #$pendingId expense #$expenseId", onDone) { refundCaptured(pendingId, expenseId, amountCents) }
 
     fun undoRefund(expenseId: Long, onDone: (String?) -> Unit) =
         performRefund("undo refund expense #$expenseId", onDone) { undoRefund(expenseId) }

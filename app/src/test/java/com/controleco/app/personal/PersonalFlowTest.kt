@@ -1,10 +1,13 @@
 package com.controleco.app.personal
 
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.controleco.app.AccBookApp
 import com.controleco.app.csv.BillParsers
 import com.controleco.app.data.LedgerViewModel
+import com.controleco.app.data.budget.CategoryBudgetMode
 import com.controleco.app.data.db.*
 import com.controleco.app.data.model.*
 import kotlinx.coroutines.runBlocking
@@ -20,6 +23,34 @@ import java.io.File
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 class PersonalFlowTest {
     @get:Rule val ui = createAndroidComposeRule<ComponentActivity>()
+
+    @Test fun categoryBudgetKeepsOriginalCentsWhenSwitchingBackFromUnchangedPercent() {
+        val vm = LedgerViewModel(RuntimeEnvironment.getApplication() as AccBookApp)
+        val categoryId = 1L
+        ui.setContent {
+            val monthly by vm.monthlyBudgetCents.collectAsState()
+            val budgets by vm.categoryBudgets.collectAsState()
+            androidx.compose.material3.Text("$monthly ${budgets[categoryId]}")
+        }
+        ui.runOnIdle { vm.setMonthlyBudget(300_000L) }
+        ui.waitUntil(10_000) { vm.monthlyBudgetCents.value == 300_000L }
+        ui.runOnIdle {
+            vm.setCategoryBudget(categoryId, 100_000L)
+            vm.setCategoryBudgetMode(CategoryBudgetMode.PERCENT)
+        }
+        assertEquals(3_333, vm.categoryBudgetPercents.value[categoryId])
+        ui.waitUntil(10_000) { vm.categoryBudgets.value[categoryId] == 99_990L }
+        ui.runOnIdle { vm.setCategoryBudgetMode(CategoryBudgetMode.AMOUNT) }
+        ui.waitUntil(10_000) { vm.categoryBudgets.value[categoryId] == 100_000L }
+
+        ui.runOnIdle {
+            vm.setCategoryBudgetMode(CategoryBudgetMode.PERCENT)
+            vm.setCategoryBudgetPercent(categoryId, 2_500)
+            vm.setCategoryBudgetMode(CategoryBudgetMode.AMOUNT)
+        }
+        ui.waitUntil(10_000) { vm.categoryBudgets.value[categoryId] == 75_000L }
+    }
+
     @Test fun realImportDedupAndMerchantLearningUseNativeViewModel() {
         val app=RuntimeEnvironment.getApplication() as AccBookApp
         ui.waitUntil(10000) { runBlocking { app.db.categoryDao().countAll() > 0 } }
@@ -39,10 +70,10 @@ class PersonalFlowTest {
         System.getProperty("wallet.localBill")?.let { path ->
             val bill=requireNotNull(BillParsers.parse(File(path).readBytes()))
             commit(bill)
-            assertEquals(333,vm.importDone.value!!.inserted)
+            assertEquals(203,vm.importDone.value!!.inserted)
             commit(bill)
             assertEquals(0,vm.importDone.value!!.inserted)
-            assertEquals(333,vm.importDone.value!!.duplicated)
+            assertEquals(203,vm.importDone.value!!.duplicated)
             val all=runBlocking { db.transactionDao().getAll() }
             assertEquals(6,all.count { it.refundMark==RefundMark.REFUND_INCOME && it.refundExpenseId>0 })
             runBlocking { db.transactionDao().deleteAll() }

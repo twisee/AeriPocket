@@ -73,6 +73,13 @@ internal fun EntryDateTime(date: LocalDate, time: LocalTime, onDate: (LocalDate)
 @Composable
 internal fun EntryCategories(categories: List<CategoryEntity>, selectedId: Long?, onSelect: (Long) -> Unit) {
     val c = MaterialTheme.eco
+    val expense = categories.firstOrNull()?.type == com.controleco.app.data.db.TxType.EXPENSE
+    val pinned = if (expense) com.controleco.app.data.CategoryPresets.pinnedExpenseNames.mapNotNull { name -> categories.firstOrNull { it.name == name } } else categories.take(3)
+    val more = categories.filterNot { cat -> pinned.any { it.id == cat.id } }.let { remaining ->
+        if (expense) remaining.sortedBy { cat ->
+            com.controleco.app.data.CategoryPresets.all.indexOfFirst { it.name == cat.name }.takeIf { it >= 0 } ?: (1000 + cat.sortOrder)
+        } else remaining
+    }
     var open by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     Column {
@@ -84,10 +91,11 @@ internal fun EntryCategories(categories: List<CategoryEntity>, selectedId: Long?
         }
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            categories.take(if (categories.size > 4) 3 else 4).forEach { category ->
+            pinned.forEach { category ->
                 EntryCategoryChip(category.name, category.id == selectedId, Modifier.weight(1f)) { onSelect(category.id) }
             }
-            if (categories.size > 4) EntryCategoryChip("全部 ${categories.size}", false, Modifier.weight(1f)) { query = ""; open = true }
+            repeat((3 - pinned.size).coerceAtLeast(0)) { Spacer(Modifier.weight(1f)) }
+            EntryCategoryChip("更多", false, Modifier.weight(1f)) { query = ""; open = true }
         }
         if (categories.isEmpty()) Text("当前类型下还没有分类", fontSize = 11.sp, color = c.quiet)
     }
@@ -95,13 +103,13 @@ internal fun EntryCategories(categories: List<CategoryEntity>, selectedId: Long?
         ModalBottomSheet(onDismissRequest = { open = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = c.paper) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("选择分类", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = c.ink)
+                    Text("更多分类", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = c.ink)
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = { open = false }) { Text("关闭") }
                 }
                 EcoField("", query, { query = it }, placeholder = "搜索分类", minHeight = 42.dp)
                 Spacer(Modifier.height(12.dp))
-                val filtered = categories.filter { it.name.contains(query.trim(), ignoreCase = true) }
+                val filtered = more.filter { it.name.contains(query.trim(), ignoreCase = true) }
                 if (filtered.isEmpty()) Text("没有匹配的分类", color = c.muted, modifier = Modifier.padding(vertical = 20.dp))
                 LazyVerticalGrid(columns = GridCells.Adaptive(70.dp), modifier = Modifier.fillMaxWidth().heightIn(max = 330.dp),
                     horizontalArrangement = Arrangement.spacedBy(9.dp), verticalArrangement = Arrangement.spacedBy(9.dp),

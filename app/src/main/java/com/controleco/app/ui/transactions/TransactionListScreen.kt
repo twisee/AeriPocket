@@ -30,15 +30,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -81,6 +77,7 @@ import com.controleco.app.data.db.TransactionRow
 import com.controleco.app.data.db.TxType
 import com.controleco.app.ui.common.EcoIcons
 import com.controleco.app.ui.common.PeriodPickerSheet
+import com.controleco.app.ui.common.PeriodDateDialog
 import com.controleco.app.ui.common.dayOfWeekZh
 import com.controleco.app.ui.common.periodScopeLabel
 import com.controleco.app.ui.eco.EcoCategoryTile
@@ -104,7 +101,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
-import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -231,7 +227,9 @@ fun TransactionListScreen(
     val requestedEnd = if (mode == PeriodMode.MONTH) MonthPeriod.of(anchorMonth, monthStartDay).toMillisRange().second
         else MonthPeriod.year(anchorMonth.year, monthStartDay).toMillisRange().second
     val loadingOlder = window?.startMillis != requestedStart || window?.endMillis != requestedEnd
-    val canLoadOlder = mode == PeriodMode.MONTH && earliest?.let { it < requestedStart } == true
+    // Keep an explicitly selected empty future month from auto-appending today's rows and switching back.
+    val emptyFutureMonth = mode == PeriodMode.MONTH && anchorMonth > currentAccountingMonth && rowsReady.isEmpty()
+    val canLoadOlder = mode == PeriodMode.MONTH && !emptyFutureMonth && earliest?.let { it < requestedStart } == true
 
 
     // 筛选与分页深度都要跨「进详情页再返回」保留：分页深度若回到首页，
@@ -298,7 +296,7 @@ fun TransactionListScreen(
         selected = emptySet()
         focusedDayText = entryDay?.toString()
         pendingJump = entryDay
-        listState.scrollToItem(0)
+        if (entryDay == null) listState.scrollToItem(0)
     }
     // 周期/筛选变了才回顶：LaunchedEffect 每次重新进入组合（从编辑页返回、切 tab 回来）
     // 都会重跑一遍，无条件 scrollToItem(0) 会把刚恢复好的滚动位置抹掉。
@@ -320,7 +318,7 @@ fun TransactionListScreen(
         selecting = false
         selected = emptySet()
         loadedLimit = FIRST_PAGE_ROWS
-        listState.scrollToItem(0)
+        if (pendingJump == null) listState.scrollToItem(0)
     }
     var lastFilterKey by rememberSaveable { mutableStateOf<String?>(null) }
     // 类型筛选或排序变了才回顶/重置分页（分类筛选刻意不进键，见 BillFilters.billListKey）
@@ -357,8 +355,8 @@ fun TransactionListScreen(
         }
     }
 
-    val filtered = remember(rowsReady, filter, categoryIds) {
-        applyBillFilters(rowsReady, filter, categoryIds)
+    val filtered = remember(rowsReady, filter, categoryIds, categories) {
+        applyBillFilters(rowsReady, filter, categoryIds, categories.filter { com.controleco.app.data.db.CategoryRules.isRefundIncome(it.type, it.name) }.map { it.id }.toSet())
     }
     val selectableIds = remember(filtered) { filtered.mapTo(mutableSetOf()) { it.id }.toSet() }
     val selectedInScope = selected.intersect(selectableIds)
@@ -417,24 +415,24 @@ fun TransactionListScreen(
             }
     }
 
-    LaunchedEffect(window?.startMillis, window?.endMillis, anchorMonth, loadedMonths, mode) {
-        val expectedEnd = if (mode == PeriodMode.MONTH) MonthPeriod.of(anchorMonth, monthStartDay).toMillisRange().second
-            else MonthPeriod.year(anchorMonth.year, monthStartDay).toMillisRange().second
-        if (window?.startMillis == requestedStart && window?.endMillis == expectedEnd) manualMonthLoading = false
+    LaunchedEffect(loadingOlder, manualMonthLoading) {
+        // An explicit jump can target the window that is already loaded.
+        if (!loadingOlder && manualMonthLoading) manualMonthLoading = false
     }
-    LaunchedEffect(listState, rowsReady, mode, monthStartDay, manualMonthLoading, sort, loadedMonths) {
+    LaunchedEffect(listState, rowsReady, mode, monthStartDay, manualMonthLoading, loadingOlder, sort, anchorMonth, loadedMonths) {
         if (mode != PeriodMode.MONTH || sort != BillSort.TIME_DESC) return@LaunchedEffect
+        val firstLoadedMonth = anchorMonth.minusMonths((loadedMonths - 1).toLong())
         val rowDates = rowsReady.associate { it.id to Instant.ofEpochMilli(it.timestamp).atZone(ZoneId.systemDefault()).toLocalDate() }
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key }
             .distinctUntilChanged().collect { key ->
-                if (manualMonthLoading || pendingJump != null || vm.month.value > anchorMonth || vm.month.value < anchorMonth.minusMonths((loadedMonths - 1).toLong())) return@collect
+                if (manualMonthLoading || loadingOlder || pendingJump != null || vm.month.value !in firstLoadedMonth..anchorMonth) return@collect
                 val date = when (key) {
                     is Long -> rowDates[key]
                     is String -> key.takeIf { it.startsWith("d") }?.drop(1)?.toLongOrNull()?.let { LocalDate.ofEpochDay(it) }
                     else -> null
                 }
                 val visibleMonth = date?.let { YearMonth.from(MonthPeriod.of(it, monthStartDay).start) }
-                if (visibleMonth != null && visibleMonth != vm.month.value) {
+                if (visibleMonth != null && visibleMonth in firstLoadedMonth..anchorMonth && visibleMonth != vm.month.value) {
                     automaticMonthChange = visibleMonth
                     vm.setMonth(visibleMonth)
                 }
@@ -464,7 +462,7 @@ fun TransactionListScreen(
         }
         val headerIndex = headerIndexForDay(shownDays, grouped, index)
         snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > headerIndex }
-        listState.scrollToItem(headerIndex)
+        listState.requestScrollToItem(headerIndex)
         pendingJump = null
     }
 
@@ -482,6 +480,7 @@ fun TransactionListScreen(
             },
         )
         BalanceCard(
+            showSpending = true,
             mode = mode,
             balanceCents = income - expense,
             incomeCents = income,
@@ -494,7 +493,6 @@ fun TransactionListScreen(
             style = CoverStyleStore.current,
             onModeChange = { vm.setPeriodMode(it) },
             onOpenImageSettings = { showCoverSheet = true },
-            modifier = Modifier.padding(horizontal = 22.dp),
         )
         BillToolbar(
             month = month,
@@ -503,6 +501,7 @@ fun TransactionListScreen(
             count = filtered.size,
             filterActive = categoryIds.isNotEmpty(),
             sortActive = sort != BillSort.TIME_DESC,
+            canAdvance = mode.canAdvanceFrom(month, currentAccountingMonth),
             onPrev = { manualMonthLoading = true; vm.prevPeriod() },
             onNext = { manualMonthLoading = true; vm.nextPeriod() },
             onOpenPicker = { showPicker = true },
@@ -591,7 +590,7 @@ fun TransactionListScreen(
                         )
                     }
                 }
-                if (mode == PeriodMode.MONTH && sort == BillSort.TIME_DESC) {
+                if (mode == PeriodMode.MONTH && sort == BillSort.TIME_DESC && !emptyFutureMonth) {
                     item(key = "previousMonthLoader") {
                         Box(Modifier.fillMaxWidth().padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
                             if (loadingOlder) Text("正在衔接上个月…", style = EcoType.PageNote, color = MaterialTheme.eco.muted)
@@ -618,7 +617,7 @@ fun TransactionListScreen(
             mode = mode,
             current = month,
             onSelectMonth = { manualMonthLoading = true; vm.setMonth(it) },
-            onSelectYear = { manualMonthLoading = true; vm.setMonth(YearMonth.of(it, month.monthValue)) },
+            onSelectYear = { manualMonthLoading = true; vm.setYear(it) },
             onDismiss = { showPicker = false },
             currentMonth = currentAccountingMonth,
         )
@@ -710,14 +709,15 @@ fun TransactionListScreen(
     }
 
     jumpTarget?.let { day ->
-        DayJumpDialog(
+        PeriodDateDialog(
             current = day,
+            latest = MonthPeriod.of(currentAccountingMonth, monthStartDay).endExclusive.minusDays(1),
+            confirmLabel = "跳转",
             onPick = { picked ->
+                val targetMonth = MonthPeriod.monthOf(picked, monthStartDay)
                 when {
-                    mode == PeriodMode.MONTH && MonthPeriod.monthOf(picked, monthStartDay) != month ->
-                        vm.setMonth(MonthPeriod.monthOf(picked, monthStartDay))
-                    mode == PeriodMode.YEAR && picked.year != month.year ->
-                        vm.setMonth(YearMonth.of(picked.year, month.monthValue))
+                    mode == PeriodMode.MONTH && targetMonth != month -> vm.setMonth(targetMonth)
+                    mode == PeriodMode.YEAR && targetMonth.year != month.year -> vm.setYear(targetMonth.year)
                 }
                 focusedDayText = picked.toString()
                 pendingJump = picked
@@ -748,6 +748,7 @@ private fun BillToolbar(
     count: Int,
     filterActive: Boolean,
     sortActive: Boolean,
+    canAdvance: Boolean,
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onOpenPicker: () -> Unit,
@@ -787,7 +788,7 @@ private fun BillToolbar(
                 color = c.quiet,
             )
         }
-        ToolbarArrow(EcoIcons.Next, "下一周期", onNext)
+        ToolbarArrow(EcoIcons.Next, "下一周期", onNext, enabled = canAdvance)
         Spacer(Modifier.weight(1f))
         ToolbarIconAction(
             icon = EcoIcons.Sort,
@@ -815,16 +816,18 @@ private fun BillToolbar(
 }
 
 @Composable
-private fun ToolbarArrow(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, onClick: () -> Unit) {
+private fun ToolbarArrow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, onClick: () -> Unit, enabled: Boolean = true,
+) {
     val c = MaterialTheme.eco
     Box(
         Modifier
             .size(26.dp)
             .clip(CircleShape)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = desc, tint = c.muted, modifier = Modifier.size(14.dp))
+        Icon(icon, contentDescription = desc, tint = c.muted.copy(alpha = if (enabled) 1f else .35f), modifier = Modifier.size(14.dp))
     }
 }
 
@@ -1296,7 +1299,7 @@ internal fun BillRow(
                 }
                 // 预算口径小标（只对支出）：不计入预算 / AA n。与「已退」同一位置与字号
                 if (isExpense) {
-                    val budgetTag = BudgetShare.tag(row.budgetExcluded, row.aaShares)
+                    val budgetTag = if (row.experienceBudget) "体验预算" else BudgetShare.tag(row.budgetExcluded, row.aaShares)
                     if (budgetTag != null) {
                         Spacer(Modifier.width(5.dp))
                         Text(
@@ -1335,27 +1338,6 @@ internal fun BillRow(
             if (isExpense && row.refundedCents > 0) Text("实付 ${Money.formatYuan((row.amountCents - row.refundedCents).coerceAtLeast(0))}",
                 fontSize = 10.sp, color = c.muted)
         }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DayJumpDialog(current: LocalDate, onPick: (LocalDate) -> Unit, onDismiss: () -> Unit) {
-    val state = rememberDatePickerState(
-        initialSelectedDateMillis = current.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
-    )
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(onClick = {
-                state.selectedDateMillis?.let { ms ->
-                    onPick(Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate())
-                }
-            }) { Text("跳转") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    ) {
-        DatePicker(state = state)
     }
 }
 

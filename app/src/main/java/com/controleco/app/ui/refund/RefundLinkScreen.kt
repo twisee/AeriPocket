@@ -34,6 +34,8 @@ fun RefundLinkScreen(
 ) {
     var rows by remember { mutableStateOf<List<TransactionRow>>(emptyList()) }
     var amount by remember { mutableStateOf<Long?>(null) }
+    var refundText by remember { mutableStateOf("") }
+    var picked by remember { mutableStateOf<TransactionRow?>(null) }
     var loading by remember { mutableStateOf(true) }
     var available by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
@@ -58,7 +60,8 @@ fun RefundLinkScreen(
                 available = refund?.refundPending == true && refund.refundMark == RefundMark.REFUND_INCOME
                 amount = refund?.amountCents?.takeIf { it > 0 }
             }
-            if (available) rows = vm.refundCandidates(amount, allowSnapshot = legacyRefundId != null)
+            refundText = amount?.let { Money.formatCents(it) }.orEmpty()
+            if (available) rows = vm.refundCandidates(null, allowSnapshot = legacyRefundId != null)
         } catch (failure: Exception) {
             if (failure is kotlinx.coroutines.CancellationException) throw failure
             error = "加载失败"
@@ -66,10 +69,11 @@ fun RefundLinkScreen(
             loading = false
         }
     }
-    val visible = remember(rows, amount, merchant, minAmount, maxAmount, startDate, endDate) {
-        filterRefundCandidates(rows, amount, merchant, minAmount, maxAmount, startDate, endDate, allowSnapshot = legacyRefundId != null)
+    val chosenAmount = if (legacyRefundId != null) amount else Money.parseCents(refundText)?.takeIf { it > 0 }
+    val visible = remember(rows, chosenAmount, merchant, minAmount, maxAmount, startDate, endDate) {
+        filterRefundCandidates(rows, chosenAmount, merchant, minAmount, maxAmount, startDate, endDate, allowSnapshot = legacyRefundId != null)
     }
-    fun pick(row: TransactionRow) {
+    fun submit(row: TransactionRow, refundCents: Long) {
         if (submitting || !available) return
         submitting = true
         error = null
@@ -82,7 +86,7 @@ fun RefundLinkScreen(
                 error = result
             }
         }
-        if (pendingId != null) vm.refundCaptured(pendingId, row.id, done)
+        if (pendingId != null) vm.refundCaptured(pendingId, row.id, done, refundCents)
         else if (legacyRefundId != null) vm.handlePendingRefund(legacyRefundId, row.id, done)
     }
 
@@ -96,9 +100,12 @@ fun RefundLinkScreen(
             if (available) {
                 item(key = "filters") {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (amount != null) {
-                            Text("退款 ${Money.formatYuan(amount!!)}", style = EcoType.BillAmount, color = c.jade)
+                        if (legacyRefundId != null) {
+                            Text("退款 ${Money.formatYuan(amount ?: 0)}", style = EcoType.BillAmount, color = c.jade)
                         } else {
+                            EcoMoneyField("退款金额", refundText, { refundText = it }, placeholder = "选择原账单后填写")
+                        }
+                        run {
                             EcoField(label = "商户", value = merchant, onValueChange = { merchant = it }, placeholder = "搜索商户")
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 EcoMoneyField("最低金额", minAmount, { minAmount = it }, Modifier.weight(1f), placeholder = "不限")
@@ -123,10 +130,19 @@ fun RefundLinkScreen(
                 !available -> item { EcoEmpty(title = if (error == null) "退款已处理" else "暂时无法加载", icon = EcoIcons.Check) }
                 visible.isEmpty() -> item { EcoEmpty(title = "暂无可选账单", icon = EcoIcons.Receipt) }
                 else -> items(visible, key = { it.id }) { row ->
-                    EcoPane { RefundRow(row, onClick = { pick(row) }) }
+                    EcoPane { RefundRow(row, onClick = { if (!submitting) picked = row }) }
                 }
             }
         }
+    }
+    picked?.let { row ->
+        if (legacyRefundId != null) {
+            EcoConfirm(title = "关联退款？", body = "将退款关联到这笔支出。", confirmText = "确认", onConfirm = {
+                picked = null; submit(row, amount ?: 0)
+            }, onDismiss = { picked = null })
+        } else RefundAmountSheet(remaining = row.amountCents - row.refundedCents,
+            initial = chosenAmount ?: (row.amountCents - row.refundedCents),
+            onRefund = { cents -> picked = null; submit(row, cents) }, onDismiss = { picked = null })
     }
 }
 

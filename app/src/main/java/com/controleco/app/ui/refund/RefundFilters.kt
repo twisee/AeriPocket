@@ -31,8 +31,8 @@ internal fun filterRefundCandidates(
     return rows.filter { row ->
         val date = Instant.ofEpochMilli(row.timestamp).atZone(zone).toLocalDate()
         row.type == TxType.EXPENSE && (allowSnapshot || row.refundMark != RefundMark.REFUNDED_EXPENSE) &&
-            (if (exact != null) row.amountCents - (if (allowSnapshot) 0 else row.refundedCents) >= exact else
-                merchantMatches(row.counterparty, merchant) && amountMatches(row.amountCents, amount)) &&
+            (exact == null || row.amountCents - (if (allowSnapshot) 0 else row.refundedCents) >= exact) &&
+            merchantMatches(row.counterparty, merchant) && amountMatches(row.amountCents, amount) &&
             (first == null || date >= first) && (last == null || date <= last)
     }
 }

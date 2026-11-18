@@ -47,8 +47,8 @@ object BudgetShare {
      * **计入预算的金额**（分）：不计入预算 → 0，否则同 [aaSplitCents]。
      * 首页预算卡、分类剩余预算用它。
      */
-    fun contributionCents(amountCents: Long, budgetExcluded: Boolean, aaShares: Int): Long =
-        if (budgetExcluded) 0L else aaSplitCents(amountCents, aaShares)
+    fun contributionCents(amountCents: Long, budgetExcluded: Boolean, aaShares: Int, experienceBudget: Boolean = false): Long =
+        if (budgetExcluded || experienceBudget) 0L else aaSplitCents(amountCents, aaShares)
 
     /**
      * 账单列表小标（与「已退 / 退款」小标同一位置）：不计预算 → `不计预算`；AA → `AA 3`；

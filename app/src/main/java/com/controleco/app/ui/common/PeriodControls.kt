@@ -315,6 +315,8 @@ fun PeriodPickerSheet(
     currentYear: Int = currentMonth.year,
 ) {
     val c = MaterialTheme.eco
+    val lastSelectableYear = minOf(currentYear, PICKER_YEAR_MAX)
+    val lastYearPageStart = (lastSelectableYear - PICKER_YEAR_MIN) / YEARS_PER_PAGE * YEARS_PER_PAGE + PICKER_YEAR_MIN
     var year by remember(current.year) { mutableIntStateOf(current.year) }
     var yearPageStart by remember(current.year) {
         mutableIntStateOf(
@@ -353,9 +355,10 @@ fun PeriodPickerSheet(
             EcoIconButton(
                 icon = EcoIcons.Next,
                 contentDescription = "下一年",
+                enabled = if (monthMode) year < lastSelectableYear else yearPageStart < lastYearPageStart,
                 onClick = {
-                    if (monthMode) year = (year + 1).coerceAtMost(PICKER_YEAR_MAX)
-                    else yearPageStart = (yearPageStart + YEARS_PER_PAGE).coerceAtMost(PICKER_YEAR_MAX - YEARS_PER_PAGE + 1)
+                    if (monthMode) year++
+                    else yearPageStart += YEARS_PER_PAGE
                 },
                 size = 28.dp,
                 container = c.surface2,
@@ -395,7 +398,7 @@ fun PeriodPickerSheet(
                                     if (highlighted && !selected) Modifier.border(1.dp, c.blue.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
                                     else Modifier,
                                 )
-                                .clickable {
+                                .clickable(enabled = !future) {
                                     onSelectMonth(YearMonth.of(year, month))
                                     onDismiss()
                                 },
@@ -435,7 +438,7 @@ fun PeriodPickerSheet(
                                     if (highlighted && !selected) Modifier.border(1.dp, c.blue.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
                                     else Modifier,
                                 )
-                                .clickable(enabled = y <= PICKER_YEAR_MAX) {
+                                .clickable(enabled = y <= lastSelectableYear) {
                                     onSelectYear(y)
                                     onDismiss()
                                 },
@@ -444,7 +447,11 @@ fun PeriodPickerSheet(
                             Text(
                                 "$y",
                                 style = EcoType.RowTitle.copy(fontSize = 12.sp),
-                                color = if (selected) Color.White else c.ink2,
+                                color = when {
+                                    selected -> Color.White
+                                    y > lastSelectableYear -> c.quiet.copy(alpha = 0.38f)
+                                    else -> c.ink2
+                                },
                             )
                         }
                     }

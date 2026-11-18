@@ -17,6 +17,18 @@ import org.junit.Test
  */
 class BillFiltersTest {
 
+    @Test fun refundCategoryShowsPartialAndFullRefundedOriginals() {
+        val partial = row(1, counterparty = "coffee").copy(refundedCents = 20)
+        val full = row(2).copy(refundedCents = 100, refundMark = RefundMark.REFUNDED_EXPENSE)
+        val ordinary = row(3)
+        val rows = listOf(partial, full, ordinary)
+        assertEquals(listOf(partial, full), applyBillFilters(rows, TxFilter.ALL, setOf(99), setOf(99)))
+        assertEquals(listOf(partial, full), applyBillFilters(rows, TxFilter.INCOME, setOf(99), setOf(99)))
+        assertEquals(rows, applyBillFilters(rows, TxFilter.ALL, setOf(99, 1), setOf(99)))
+        assertEquals(listOf(partial), searchBills(rows, BillSearchQuery(categoryIds = setOf(99),
+            amount = AmountQuery(exactCents = 100), keyword = "coffee"), setOf(99)))
+    }
+
     private fun row(
         id: Long,
         counterparty: String = "",

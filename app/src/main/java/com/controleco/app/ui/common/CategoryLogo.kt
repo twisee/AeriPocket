@@ -38,7 +38,7 @@ fun CategoryLogo(categoryName: String, icon: String, size: Dp = 40.dp) {
     val imageFile = CategoryIcon.imageOf(icon)
     when {
         emoji != null -> {
-            val fontSize = with(LocalDensity.current) { (size * 0.78f).toSp() }
+            val fontSize = with(LocalDensity.current) { (size * 0.62f).toSp() }
             Box(Modifier.size(size), contentAlignment = Alignment.Center) {
                 Text(emoji, fontSize = fontSize, maxLines = 1, softWrap = false)
             }
@@ -78,14 +78,15 @@ private fun ImageLogo(categoryName: String, fileName: String, size: Dp) {
     }
     val bmp = bitmap
     if (bmp != null) {
-        Image(
-            bitmap = bmp.asImageBitmap(),
-            contentDescription = categoryName,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(size)
-                .clip(RoundedCornerShape(size * 0.30f)),
-        )
+        Box(Modifier.size(size), contentAlignment = Alignment.Center) {
+            val imageSize = size * 0.56f
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = categoryName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(imageSize).clip(RoundedCornerShape(imageSize * 0.30f)),
+            )
+        }
     } else {
         Box(Modifier.size(size))
     }

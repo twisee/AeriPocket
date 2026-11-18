@@ -50,6 +50,8 @@ import com.controleco.app.ui.common.scrimAlphaFor
 import com.controleco.app.ui.eco.EcoAutoMoney
 import com.controleco.app.ui.common.EcoIcons
 import com.controleco.app.ui.common.AliceBalanceCard
+import com.controleco.app.ui.common.BalanceCoverHeight
+import com.controleco.app.ui.common.BalanceCoverShape
 import com.controleco.app.ui.theme.EcoType
 import com.controleco.app.ui.theme.eco
 import com.controleco.app.ui.theme.heroGradient
@@ -83,13 +85,15 @@ fun BalanceCard(
     onOpenImageSettings: () -> Unit,
     /** 统计页复用同一张封面，但不在这里改背景图（入口仍在账单页） */
     showEdit: Boolean = true,
+    showSpending: Boolean = false,
 ) {
     val c = MaterialTheme.eco
+    val coverModifier = modifier.padding(horizontal = 22.dp, vertical = 6.dp)
     val drawable = remember(image?.full, image?.preview) { image?.asImage() }
     val customImage = image != null || !imagePath.isNullOrBlank()
     // The existing default preset now uses the approved floral cover. Custom images and other presets keep priority.
     if (!customImage && style != CoverStyleStore.MIST && style != CoverStyleStore.CLAY) {
-        AliceBalanceCard(mode, balanceCents, incomeCents, expenseCents, onModeChange, onOpenImageSettings, modifier, showEdit)
+        AliceBalanceCard(mode, balanceCents, incomeCents, expenseCents, onModeChange, onOpenImageSettings, coverModifier, showEdit, showSpending)
         return
     }
     val placeholder = if (drawable == null && customImage) placeholderColor?.let { Color(it) } else null
@@ -133,12 +137,12 @@ fun BalanceCard(
             scrimAlphaFor(effectiveLuminance, relativeLuminance(expense)),
         )
     }
-    val shape = RoundedCornerShape(22.dp)
+    val shape = BalanceCoverShape
 
     Box(
-        modifier
+        coverModifier
             .fillMaxWidth()
-            .height(150.dp)
+            .height(BalanceCoverHeight)
             .shadow(
                 elevation = 18.dp,
                 shape = shape,
@@ -402,13 +406,13 @@ fun BalanceCard(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        if (mode == PeriodMode.MONTH) "本月结余" else "本年结余",
+                        if (showSpending) { if (mode == PeriodMode.MONTH) "本月花费" else "本年花费" } else { if (mode == PeriodMode.MONTH) "本月结余" else "本年结余" },
                         style = EcoType.Pill.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.6.sp),
                         color = sub,
                     )
                     Spacer(Modifier.height(1.dp))
                     EcoAutoMoney(
-                        text = Money.formatYuanGroupedFixed(balanceCents),
+                        text = Money.formatYuanGroupedFixed(if (showSpending) expenseCents else balanceCents),
                         style = EcoType.CoverMoney,
                         color = ink,
                         widthLimit = 206.dp,
@@ -416,7 +420,7 @@ fun BalanceCard(
                         textAlign = androidx.compose.ui.text.style.TextAlign.Start,
                     )
                 }
-                Column(
+                if (!showSpending) Column(
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                     modifier = Modifier.padding(bottom = 3.dp),

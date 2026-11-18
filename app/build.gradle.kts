@@ -15,8 +15,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // 每次发布递增内部升级序号；显示版本按发布要求设置，正式版不带 -beta 后缀
-        versionCode = 155
-        versionName = "1.5.4"
+        versionCode = 162
+        versionName = "1.6.6"
     }
 
     buildTypes {

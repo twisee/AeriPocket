@@ -131,6 +131,8 @@ fun SettingsScreen(
     SettingsPage(micro = "PREFERENCES", title = "设置", onBack = onBack) {
         AutomationStatusCard(running = running, lastCaptureAt = lastCaptureAt)
 
+        ExperienceVaultSettings(vm)
+
         SettingsSection(title = "自动记账", aside = "CAPTURE / 监听")
         SettingsPane {
             SettingsSwitchRow(

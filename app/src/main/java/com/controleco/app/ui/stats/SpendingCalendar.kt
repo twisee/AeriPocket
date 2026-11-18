@@ -46,11 +46,14 @@ internal fun SpendingCalendarCard(month: YearMonth, startDay: Int, rows: List<Tr
         Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(7.dp)) {
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
                 Text("支出日历",style=EcoType.SectionTitle,color=c.ink)
-                Text(chosen?.let { "${it.date.monthValue}月${it.date.dayOfMonth}日  ${Money.formatYuan(it.cents)}" } ?: "元",fontSize=11.sp,color=c.muted)
-            }
-            chosen?.let { day ->
-                TextButton(onClick = { onOpenDay(day.date) }, modifier = Modifier.align(Alignment.End).testTag("confirmSpendingDay")) {
-                    Text("查看 ${day.date.monthValue}月${day.date.dayOfMonth}日流水", color = c.blueDeep)
+                TextButton(
+                    onClick = { chosen?.let { onOpenDay(it.date) } },
+                    enabled = chosen != null,
+                    modifier = Modifier.testTag("confirmSpendingDay").semantics {
+                        chosen?.let { contentDescription = "查看 ${it.date.monthValue}月${it.date.dayOfMonth}日流水" }
+                    },
+                ) {
+                    Text("查看流水", color = c.blueDeep)
                 }
             }
             if(startDay!=1 && days.isNotEmpty()) Text("${days.first().date} — ${days.last().date}",fontSize=10.sp,color=c.quiet)
@@ -79,7 +82,6 @@ internal fun SpendingCalendarCard(month: YearMonth, startDay: Int, rows: List<Tr
                     }
                 }
             }
-            Text("颜色越深，支出越多",fontSize=10.sp,color=c.quiet,modifier=Modifier.padding(top=2.dp))
 
         }
     }
@@ -88,7 +90,9 @@ internal fun SpendingCalendarCard(month: YearMonth, startDay: Int, rows: List<Tr
 
 /** Twelve accounting months, calculated with the same refund/AA rules as daily cells. */
 @Composable
-internal fun SpendingMonthGrid(year: Int, startDay: Int, rows: List<TransactionRow>, onOpenMonth: (YearMonth) -> Unit) {
+internal fun SpendingMonthGrid(
+    year: Int, startDay: Int, rows: List<TransactionRow>, latestMonth: YearMonth, onOpenMonth: (YearMonth) -> Unit,
+) {
     val c = MaterialTheme.eco
     val months = remember(year, startDay, rows) { ChartMath.yearBars(rows, YearMonth.of(year, 1), startDay) }
     val maximum = months.maxOfOrNull { it.cents } ?: 0L
@@ -116,10 +120,10 @@ internal fun SpendingMonthGrid(year: Int, startDay: Int, rows: List<TransactionR
                         Column(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(6.dp)).background(bg)
                             .border(if (selected == month) 1.5.dp else .5.dp,
                                 if (selected == month) c.blueDeep else c.rule.copy(alpha = .4f), RoundedCornerShape(6.dp))
-                            .clickable { selected = month }.testTag("spendingMonth-$month")
+                            .clickable(enabled = month <= latestMonth) { selected = month }.testTag("spendingMonth-$month")
                             .semantics { contentDescription = "$month 支出 ${Money.formatYuan(value.cents)}" },
                             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                            Text("${index + 1}月", fontSize = 11.sp, color = fg, fontWeight = FontWeight.Medium)
+                            Text("${index + 1}月", fontSize = 11.sp, color = if (month <= latestMonth) fg else c.quiet, fontWeight = FontWeight.Medium)
                             Spacer(Modifier.height(3.dp))
                             Text(Money.formatCents(value.cents), fontSize = 9.sp, color = fg, maxLines = 1)
                         }

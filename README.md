@@ -31,9 +31,9 @@
 
 ## 安装与升级
 
-Android 8.0及以上。在[Releases](https://github.com/twisee/AeriPocket/releases/latest)下载 `AeriPocket-1.5.4.apk`。本次[更新说明](docs/releases/1.5.4.md)。
+Android 8.0及以上。在 [Releases](https://github.com/twisee/AeriPocket/releases/latest) 下载 `AeriPocket-1.6.6.apk`。本次[更新说明](docs/releases/1.6.6.md)。
 
-正式版1.5.4沿用包名 `com.twisee.wallet.eco` 和相同签名，可直接覆盖同签名的旧版。保持包名是为了延续原账本与系统权限。卸载应用会清除本地数据，请勿先卸载。CSV可用于查看与迁移，不是本应用完整恢复备份。
+正式版 1.6.6 沿用包名 `com.twisee.wallet.eco` 和相同签名，可直接覆盖同签名的旧版。保持包名是为了延续原账本与系统权限。卸载应用会清除本地数据，请勿先卸载。CSV可用于查看与迁移，不是本应用完整恢复备份。
 
 自动联网检查更新当前关闭，通过本仓库Releases获取更新。不要安装原版ControlECO的更新包来升级AeriPocket。
 

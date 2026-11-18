@@ -44,7 +44,7 @@ class PersonalDatabaseTest {
                     override fun onUpgrade(db: androidx.sqlite.db.SupportSQLiteDatabase,old:Int,new:Int) {}
                 }).build())
         helper.writableDatabase;helper.close()
-        val migrated = Room.databaseBuilder(context, AccBookDatabase::class.java,name).addMigrations(AccBookDatabase.MIGRATION_14_15).build()
+        val migrated = Room.databaseBuilder(context, AccBookDatabase::class.java,name).addMigrations(AccBookDatabase.MIGRATION_14_15, AccBookDatabase.MIGRATION_15_16).build()
         try {
             val row = requireNotNull(migrated.transactionDao().getById(1))
             assertEquals(2500L,row.refundedCents)

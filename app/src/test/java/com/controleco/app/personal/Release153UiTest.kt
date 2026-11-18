@@ -121,13 +121,13 @@ class Release153UiTest {
         ui.onNodeWithText("退款").assertIsDisplayed()
         ui.onAllNodes(isToggleable()).onFirst().assertIsOff()
         shot("compact-edit")
-        ui.onNodeWithText("全部 ",substring=true).performClick()
-        text("选择分类")
+        ui.onNodeWithText("更多").performClick()
+        text("更多分类")
         ui.waitForIdle()
         dialogShot("category-picker")
         ui.onNodeWithContentDescription("输入").performTextInput("演示分类19")
         ui.onNode(hasText("演示分类19") and !hasSetTextAction()).performClick()
-        ui.onNodeWithText("选择分类").assertDoesNotExist()
+        ui.onNodeWithText("更多分类").assertDoesNotExist()
         ui.onNodeWithText("09:30").assertExists()
         ui.onNodeWithText("保存修改").performClick()
         waitFor { returned }
@@ -190,7 +190,13 @@ class Release153UiTest {
         val (vm,food,account)=ready()
         val now=System.currentTimeMillis()
         val fifth=runBlocking { app.db.categoryDao().insert(CategoryEntity(name="第五分类",type=TxType.EXPENSE,sortOrder=8)) }
-        val ids=runBlocking { app.db.categoryDao().getAll().filter { it.type==TxType.EXPENSE }.map { it.id } }
+        val ids=runBlocking {
+            val extra = app.db.categoryDao().getAll()
+                .filter { it.type == TxType.EXPENSE && it.id != food && it.id != fifth }
+                .take(3)
+                .map { it.id }
+            listOf(food, fifth) + extra
+        }
         runBlocking {
             app.db.transactionDao().insert(TransactionEntity(type=TxType.EXPENSE,amountCents=5000,categoryId=food,accountId=account,timestamp=now))
             app.db.transactionDao().insert(TransactionEntity(type=TxType.EXPENSE,amountCents=20000,categoryId=food,accountId=account,timestamp=now,budgetExcluded=true))

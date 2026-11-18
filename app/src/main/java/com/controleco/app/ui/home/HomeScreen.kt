@@ -175,6 +175,8 @@ fun HomeScreen(
     onOpenCategories: () -> Unit,
 ) {
     val budgetCents by vm.monthlyBudgetCents.collectAsStateWithLifecycle()
+    val totalBudgetCents by vm.totalMonthlyBudgetCents.collectAsStateWithLifecycle()
+    val vault by vm.experienceVault.collectAsStateWithLifecycle()
     val spentCents by vm.homeSpent.collectAsStateWithLifecycle()
     val todaySpentCents by vm.homeTodaySpent.collectAsStateWithLifecycle()
     val categoryBudgets by vm.categoryBudgets.collectAsStateWithLifecycle()
@@ -214,7 +216,7 @@ fun HomeScreen(
             today,
             todaySpentReady,
             period = period,
-            dailyBudgetCents = if (dailyBudgetMode) dailyBudgetCents else 0L,
+            dailyBudgetCents = if (dailyBudgetMode) Budget.dailyEquivalent(budgetCents, period.days) else 0L,
         )
     }
     val s = snapshot
@@ -394,8 +396,12 @@ fun HomeScreen(
 
     if (showBudgetSheet) {
         EcoBudgetSheet(
+            minimumCents = run {
+                val reserved = maxOf(vault.grants[java.time.YearMonth.from(period.start)] ?: 0L, if (vault.enabled) vault.nextMonthlyCents ?: vault.monthlyCents else 0L)
+                if (dailyBudgetMode) (reserved + 27) / 28 else reserved
+            },
             dailyMode = dailyBudgetMode,
-            currentCents = if (dailyBudgetMode) dailyBudgetCents else budgetCents,
+            currentCents = if (dailyBudgetMode) dailyBudgetCents else totalBudgetCents,
             onSave = {
                 if (dailyBudgetMode) vm.setDailyBudget(it) else vm.setMonthlyBudget(it)
                 showBudgetSheet = false
